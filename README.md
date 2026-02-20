@@ -216,7 +216,8 @@ Creates a **GitHub Release** for the current version of the book when a **major*
 #### When it runs
 
 - **Trigger:** Push to `main` that changes any file under a major-version path: `Chapters/**/v*.0.0/*.md` (e.g. new or updated content in `Chapters/Chapter 3/v2.0.0/`).
-- So: after a pull request is merged that adds or edits a `vX.0.0` chapter directory, the workflow runs.
+- **Manual:** Can be run from the **Actions** tab via **workflow_dispatch** (e.g. to retry or after pushing a major-version change). It still only creates a release if the last commit on the branch contains major-version path changes.
+- So: after a pull request is merged that adds or edits a `vX.0.0` chapter directory, the workflow runs (or you can trigger it manually).
 
 #### What it does
 

@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'Chapters/**/v*.0.0/*.md'
+  workflow_dispatch:
 
 jobs:
   detect-major-version:
