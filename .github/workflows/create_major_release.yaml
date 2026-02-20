@@ -10,7 +10,9 @@ on:
 jobs:
   detect-major-version:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write   # Required to create releases, tags, and upload assets
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
