@@ -925,7 +925,9 @@ def main(page: ft.Page) -> None:
         edit_layer.visible = False
         _scratch_placeholder.visible = False
         m = re.search(r"[Cc]hapter\s+(\d+)", str(md_path))
-        status_chapter.value = f"Chapter {m.group(1)}" if m else md_path.stem
+        chap_label = f"Chapter {m.group(1)}" if m else md_path.stem
+        status_chapter.value = chap_label
+        chapter_panel_title.value = chap_label
         _mark_dirty(False)
         _update_word_count_internal()
         refresh_chapter_list()
@@ -1420,9 +1422,94 @@ def main(page: ft.Page) -> None:
         border=ft.border.only(right=ft.BorderSide(1, _BORDER)),
     )
 
+    # ── Chapter panel header (filename + close button) ────────────────────────
+
+    chapter_panel_title = ft.Text(
+        "New document", size=12, color=_TEXT_MUTED,
+        overflow=ft.TextOverflow.ELLIPSIS, expand=True,
+    )
+
+    def _close_chapter_panel(e=None):
+        """Close the current chapter / scratch-pad and return to blank scratch."""
+        # Guard: if scratch has unsaved content in an actual chapter, prompt first
+        if current_md_path["value"] is not None and editor_dirty["value"]:
+            def _discard(e2):
+                page.close(dlg)
+                _clear_chapter_editor()
+                page.update()
+            def _save_then_close(e2):
+                page.close(dlg)
+                save_current()
+                _clear_chapter_editor()
+            dlg = ft.AlertDialog(
+                bgcolor=_SURFACE, modal=True,
+                title=_heading("Unsaved changes", size=18),
+                content=ft.Container(
+                    ft.Text("Save changes before closing?", color=_TEXT_MUTED, size=13),
+                    width=280,
+                ),
+                actions=[
+                    _ghost_btn("Cancel", on_click=lambda e2: page.close(dlg)),
+                    _ghost_btn("Save & close", on_click=_save_then_close),
+                    ft.TextButton("Discard", on_click=_discard,
+                        style=ft.ButtonStyle(
+                            color={ft.ControlState.DEFAULT: _ERROR,
+                                   ft.ControlState.HOVERED: "#FF7070"},
+                            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                        )),
+                ],
+                shape=ft.RoundedRectangleBorder(radius=10),
+            )
+            page.open(dlg)
+            page.update()
+            return
+        _clear_chapter_editor()
+        page.update()
+
+    def _clear_chapter_editor():
+        """Reset editor to blank scratch state."""
+        current_md_path["value"] = None
+        _save_dialog_pending["value"] = False
+        md_content["value"] = ""
+        md_preview.value = ""
+        raw_editor.value = ""
+        status_chapter.value = ""
+        chapter_panel_title.value = "New document"
+        _scratch_placeholder.visible = True
+        editor_mode["value"] = "preview"
+        preview_layer.visible = True
+        edit_layer.visible = False
+        _mark_dirty(False)
+        _update_word_count_internal()
+        refresh_chapter_list()
+
+    chapter_panel_header = ft.Container(
+        ft.Row(
+            [
+                ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=12, color=_TEXT_MUTED),
+                ft.Container(width=6),
+                chapter_panel_title,
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE,
+                    icon_size=12,
+                    icon_color=_TEXT_MUTED,
+                    tooltip="Close file",
+                    on_click=_close_chapter_panel,
+                    style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=0,
+        ),
+        padding=ft.padding.only(left=12, right=4, top=6, bottom=6),
+        bgcolor=_SURFACE,
+        border=ft.border.only(bottom=ft.BorderSide(1, _BORDER)),
+    )
+
     # ── Planning pane ──────────────────────────────────────────────────────────
 
     planning_open = {"value": False}
+    planning_editor_open = {"value": False}  # True when a planning file is loaded
     planning_file_list = ft.Column([], scroll=ft.ScrollMode.AUTO, expand=True, spacing=0)
     current_planning_path = {"value": None}
 
@@ -1529,7 +1616,79 @@ def main(page: ft.Page) -> None:
         expand=True,
     )
 
+    # ── Planning editor panel header (filename + close button) ─────────────────
+    planning_panel_title = ft.Text(
+        "", size=12, color=_TEXT_MUTED,
+        overflow=ft.TextOverflow.ELLIPSIS, expand=True,
+    )
+
+    def _close_planning_editor(e=None):
+        """Close the planning editor panel (auto-saved on blur already)."""
+        current_planning_path["value"] = None
+        planning_md_content["value"] = ""
+        planning_preview.value = ""
+        planning_raw.value = ""
+        planning_panel_title.value = ""
+        planning_editor_mode["value"] = "preview"
+        planning_preview_layer.visible = True
+        planning_edit_layer.visible = False
+        planning_editor_panel.visible = False
+        planning_editor_open["value"] = False
+        _adjust_window_for_planning(editor_open=False)
+        refresh_planning_list()
+
+    planning_panel_header = ft.Container(
+        ft.Row(
+            [
+                ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=12, color=_TEXT_MUTED),
+                ft.Container(width=6),
+                planning_panel_title,
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE,
+                    icon_size=12,
+                    icon_color=_TEXT_MUTED,
+                    tooltip="Close planning file",
+                    on_click=_close_planning_editor,
+                    style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=0,
+        ),
+        padding=ft.padding.only(left=12, right=4, top=6, bottom=6),
+        bgcolor=_SURFACE,
+        border=ft.border.only(
+            left=ft.BorderSide(1, _BORDER),
+            bottom=ft.BorderSide(1, _BORDER),
+        ),
+    )
+
+    planning_editor_panel = ft.Container(
+        ft.Column(
+            [planning_panel_header, planning_editor_area],
+            spacing=0, expand=True,
+        ),
+        expand=True,
+        visible=False,
+    )
+
+    _PLANNING_EDITOR_WIDTH = 440  # px added to window when planning editor opens
+
+    def _adjust_window_for_planning(editor_open: bool):
+        """Grow / shrink the window width when the planning editor panel appears."""
+        try:
+            if editor_open:
+                page.window.width = (page.window.width or 1280) + _PLANNING_EDITOR_WIDTH
+            else:
+                page.window.width = max(
+                    900,
+                    (page.window.width or 1280) - _PLANNING_EDITOR_WIDTH,
+                )
+        except Exception:
+            pass
+
     def load_planning_file(path: Path):
+        was_open = planning_editor_open["value"]
         current_planning_path["value"] = path
         try:
             text = path.read_text(encoding="utf-8")
@@ -1538,9 +1697,14 @@ def main(page: ft.Page) -> None:
         planning_md_content["value"] = text
         planning_preview.value = text
         planning_raw.value = text
+        planning_panel_title.value = path.name
         planning_editor_mode["value"] = "preview"
         planning_preview_layer.visible = True
         planning_edit_layer.visible = False
+        if not was_open:
+            planning_editor_open["value"] = True
+            planning_editor_panel.visible = True
+            _adjust_window_for_planning(editor_open=True)
         refresh_planning_list()
 
     def refresh_planning_list():
@@ -1620,14 +1784,24 @@ def main(page: ft.Page) -> None:
         page.open(dlg)
         page.update()
 
-    def toggle_planning_pane(e=None):
-        planning_open["value"] = not planning_open["value"]
-        planning_pane.visible = planning_open["value"]
-        if planning_open["value"]:
-            refresh_planning_list()
+    def _close_planning_list(e=None):
+        """Close the planning file-list sidebar (and editor if open)."""
+        planning_open["value"] = False
+        planning_list_panel.visible = False
+        if planning_editor_open["value"]:
+            _close_planning_editor()
         page.update()
 
-    planning_pane = ft.Container(
+    def toggle_planning_pane(e=None):
+        if planning_open["value"]:
+            _close_planning_list()
+        else:
+            planning_open["value"] = True
+            planning_list_panel.visible = True
+            refresh_planning_list()
+            page.update()
+
+    planning_list_panel = ft.Container(
         ft.Column(
             [
                 # Header row
@@ -1645,10 +1819,18 @@ def main(page: ft.Page) -> None:
                                 on_click=tool_new_planning_file,
                                 style=ft.ButtonStyle(padding=ft.padding.all(4)),
                             ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_size=12,
+                                icon_color=_TEXT_MUTED,
+                                tooltip="Close planning",
+                                on_click=_close_planning_list,
+                                style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                            ),
                         ],
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    padding=ft.padding.only(left=12, right=4, top=14, bottom=8),
+                    padding=ft.padding.only(left=12, right=4, top=8, bottom=8),
                 ),
                 # File list
                 ft.Container(planning_file_list, expand=True),
@@ -1656,11 +1838,14 @@ def main(page: ft.Page) -> None:
             spacing=0,
             expand=True,
         ),
-        width=200,
+        width=180,
         bgcolor=_SURFACE,
         border=ft.border.only(left=ft.BorderSide(1, _BORDER)),
         visible=False,
     )
+
+    # Keep old name as alias for code that still references planning_pane
+    planning_pane = planning_list_panel
 
     # ── Overflow menu — all less-frequent tools ────────────────────────────────
     tools_menu = ft.PopupMenuButton(
@@ -1743,14 +1928,24 @@ def main(page: ft.Page) -> None:
         height=36,
     )
 
+    # ── Chapter editor panel (header + editor area) ────────────────────────────
+    chapter_panel = ft.Container(
+        ft.Column(
+            [chapter_panel_header, editor_area],
+            spacing=0, expand=True,
+        ),
+        expand=True,
+    )
+
     # ── Main editor layout ─────────────────────────────────────────────────────
     editor_content = ft.Column(
         [
             ft.Row(
                 [
                     sidebar,
-                    editor_area,
-                    planning_pane,
+                    chapter_panel,
+                    planning_editor_panel,
+                    planning_list_panel,
                 ],
                 expand=True,
                 spacing=0,
