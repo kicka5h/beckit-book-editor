@@ -1,7 +1,7 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 ; BookEditor Windows Installer
 ; Build with: makensis /DVERSION=X.Y.Z installer.nsi
-; Requires: NSIS 3.x with inetc plugin (bundled with NSIS on GitHub Actions)
+; Requires: NSIS 3.x (no extra plugins needed)
 ; ─────────────────────────────────────────────────────────────────────────────
 
 !ifndef VERSION
@@ -33,16 +33,16 @@ SetCompressor /SOLID lzma
 
 !insertmacro MUI_LANGUAGE "English"
 
-; ── Helper macro: try winget, fall back to direct download ────────────────────
+; ── Helper macro: try winget, fall back to direct download via PowerShell ─────
 ; Usage: ${TryWinget} "Publisher.PackageId" "$TEMP\fallback.exe" "https://..." "/SILENT"
 !macro _TryWinget PKG_ID FALLBACK_PATH FALLBACK_URL SILENT_FLAG
   nsExec::ExecToLog 'winget install --id ${PKG_ID} --exact --silent --accept-package-agreements --accept-source-agreements'
   Pop $0
   ${If} $0 != 0
     DetailPrint "winget unavailable or failed for ${PKG_ID}; downloading installer..."
-    inetc::get /NOUNLOAD /SILENT "${FALLBACK_URL}" "${FALLBACK_PATH}"
+    nsExec::ExecToLog 'powershell -NoProfile -Command "Invoke-WebRequest -Uri ''${FALLBACK_URL}'' -OutFile ''${FALLBACK_PATH}'' -UseBasicParsing"'
     Pop $1
-    ${If} $1 == "OK"
+    ${If} $1 == 0
       ExecWait '"${FALLBACK_PATH}" ${SILENT_FLAG}' $0
     ${Else}
       MessageBox MB_ICONEXCLAMATION "Download failed for ${PKG_ID}.$\nPlease install it manually."
