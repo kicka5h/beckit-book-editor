@@ -169,11 +169,15 @@ def clone_repo(clone_url: str, local_path: Path, token: str) -> None:
 def ensure_chapters_structure(repo_path: Path) -> None:
     """
     If repo has no Chapters/ directory, create it with a starter Chapter 1/v1.0.0/v1.0.0.md.
+    Also ensures the planning/ directory exists with a starter README.
     """
+    from book_editor.services.planning import ensure_planning_structure
+
     chapters_dir = repo_path / "Chapters"
-    if chapters_dir.exists() and chapters_dir.is_dir():
-        return
-    chapters_dir.mkdir(parents=True)
-    ch1 = chapters_dir / "Chapter 1" / "v1.0.0"
-    ch1.mkdir(parents=True)
-    (ch1 / "v1.0.0.md").write_text("# Chapter 1\n\n", encoding="utf-8")
+    if not (chapters_dir.exists() and chapters_dir.is_dir()):
+        chapters_dir.mkdir(parents=True)
+        ch1 = chapters_dir / "Chapter 1" / "v1.0.0"
+        ch1.mkdir(parents=True)
+        (ch1 / "v1.0.0.md").write_text("# Chapter 1\n\n", encoding="utf-8")
+
+    ensure_planning_structure(str(repo_path))

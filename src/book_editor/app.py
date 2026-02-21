@@ -28,6 +28,8 @@ from book_editor.services import (
     process_file,
     git_push,
     list_chapters_with_versions,
+    delete_chapter,
+    reorder_chapters,
     validate_token,
     list_user_repos,
     create_repo,
@@ -37,6 +39,11 @@ from book_editor.services import (
     poll_device_flow,
     build_pdf,
     check_pandoc_available,
+    ensure_planning_structure,
+    list_planning_files,
+    create_planning_file,
+    create_planning_folder,
+    delete_planning_entry,
 )
 from book_editor.utils import chapters_dir
 
@@ -135,8 +142,10 @@ def _build_theme() -> ft.Theme:
 
 def main(page: ft.Page) -> None:
     page.title = "Book Editor"
-    page.window.min_width = 800
-    page.window.min_height = 560
+    page.window.width = 1280
+    page.window.height = 800
+    page.window.min_width = 900
+    page.window.min_height = 600
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = _BG
     page.theme = _build_theme()
@@ -460,12 +469,17 @@ def main(page: ft.Page) -> None:
 
     # ── Editor ────────────────────────────────────────────────────────────────
     repo_path_holder = {"value": get_repo_path(config)}
-    chapter_list = ft.Column([], scroll=ft.ScrollMode.AUTO, expand=True, spacing=0)
 
     # Dual-mode state: "preview" shows ft.Markdown, "edit" shows ft.TextField
     editor_mode = {"value": "preview"}  # "preview" | "edit"
     # Raw markdown content is the source of truth
     md_content = {"value": ""}
+    # Tracks whether the scratch-pad save dialog has already been triggered
+    # for the current unsaved session (prevents re-triggering on every keystroke)
+    _save_dialog_pending = {"value": False}
+    # Set to True by the window-close guard when the user chooses "Save first…"
+    # so that each save handler knows to destroy the window after saving.
+    _pending_close = {"value": False}
 
     # ── Markdown style sheet — Anthropic palette ─────────────────────────────
     _md_body_style  = ft.TextStyle(color=_TEXT,       size=15, font_family="Georgia")
@@ -511,12 +525,25 @@ def main(page: ft.Page) -> None:
         code_theme=ft.MarkdownCodeTheme.TOMORROW_NIGHT,
     )
 
+    # Placeholder shown in preview mode when no chapter is open and no content yet
+    _scratch_placeholder = ft.Container(
+        ft.Text(
+            "Start writing — you'll be asked where to save it.",
+            size=15,
+            color=_TEXT_MUTED,
+            italic=True,
+        ),
+        padding=ft.padding.symmetric(horizontal=48, vertical=32),
+        visible=True,  # shown by default; hidden once content exists or chapter is open
+    )
+
     # Invisible click catcher layered over the preview; tap → switch to edit
     def _enter_edit_mode(e=None):
         if editor_mode["value"] == "edit":
             return
         editor_mode["value"] = "edit"
         raw_editor.value = md_content["value"]
+        _scratch_placeholder.visible = False
         preview_layer.visible = False
         edit_layer.visible = True
         page.update()
@@ -532,6 +559,10 @@ def main(page: ft.Page) -> None:
         editor_mode["value"] = "preview"
         preview_layer.visible = True
         edit_layer.visible = False
+        # Show placeholder only when no content and no chapter open
+        _scratch_placeholder.visible = (
+            not new_text.strip() and current_md_path["value"] is None
+        )
         # Mark dirty and update word count (batch into single page.update)
         _mark_dirty(True)
         _update_word_count_internal()
@@ -545,6 +576,8 @@ def main(page: ft.Page) -> None:
                     content=ft.Container(
                         content=ft.Column(
                             [
+                                # Placeholder shown when editor is empty and no chapter loaded
+                                _scratch_placeholder,
                                 ft.Container(
                                     md_preview,
                                     padding=ft.padding.symmetric(horizontal=48, vertical=32),
@@ -575,8 +608,241 @@ def main(page: ft.Page) -> None:
     )
 
     # ── Raw editor widget (ft.TextField) ─────────────────────────────────────
+    def _show_save_to_chapter_dialog():
+        """Show dialog prompting user to save scratch-pad content to a chapter or planning file."""
+        _save_dialog_pending["value"] = True
+        path = repo_path_holder["value"]
+        if not path:
+            return
+
+        # ── Chapter options ───────────────────────────────────────────────────
+        existing = list_chapters_with_versions(path)
+        chapter_options = [
+            ft.dropdown.Option(key=str(md_p), text=f"Chapter {n}  ({ver})")
+            for n, ver, md_p in existing
+        ]
+        chapter_dropdown = ft.Dropdown(
+            label="Existing chapter",
+            options=chapter_options,
+            border_color=_BORDER,
+            focused_border_color=_ACCENT,
+            bgcolor=_SURFACE2,
+            border_radius=6,
+            label_style=ft.TextStyle(color=_TEXT_MUTED, size=12),
+            text_style=ft.TextStyle(color=_TEXT, size=13),
+            disabled=not chapter_options,
+            hint_text="(none available)" if not chapter_options else None,
+        )
+
+        # ── Planning options ──────────────────────────────────────────────────
+        ensure_planning_structure(path)
+        planning_entries = list_planning_files(path)
+        # Only .md files (not dirs) for the "existing" dropdown
+        planning_file_options = [
+            ft.dropdown.Option(key=str(fpath), text=label)
+            for label, fpath, is_dir in planning_entries
+            if not is_dir
+        ]
+        planning_dropdown = ft.Dropdown(
+            label="Existing planning file",
+            options=planning_file_options,
+            border_color=_BORDER,
+            focused_border_color=_ACCENT,
+            bgcolor=_SURFACE2,
+            border_radius=6,
+            label_style=ft.TextStyle(color=_TEXT_MUTED, size=12),
+            text_style=ft.TextStyle(color=_TEXT, size=13),
+            disabled=not planning_file_options,
+            hint_text="(none available)" if not planning_file_options else None,
+        )
+        planning_name_field = _styled_field(
+            "New planning file name (e.g. Notes.md)", width=290
+        )
+
+        # ── Handlers ─────────────────────────────────────────────────────────
+        def _save_to_new_chapter(e2):
+            try:
+                create_new_chapter(chapters_dir(path))
+                new_chapters = list_chapters_with_versions(path)
+                if new_chapters:
+                    _, _, new_md_path = new_chapters[-1]
+                    Path(new_md_path).write_text(md_content["value"], encoding="utf-8")
+                    page.close(dlg)
+                    if _pending_close["value"]:
+                        _pending_close["value"] = False
+                        page.window.destroy()
+                        return
+                    load_chapter_file(new_md_path)
+                    page.open(ft.SnackBar(
+                        ft.Text(f"Saved to new Chapter {new_chapters[-1][0]}.")
+                    ))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        def _save_to_existing_chapter(e2):
+            sel = chapter_dropdown.value
+            if not sel:
+                page.open(ft.SnackBar(ft.Text("Select a chapter first.")))
+                page.update()
+                return
+            try:
+                sel_path = Path(sel)
+                sel_path.write_text(md_content["value"], encoding="utf-8")
+                page.close(dlg)
+                if _pending_close["value"]:
+                    _pending_close["value"] = False
+                    page.window.destroy()
+                    return
+                load_chapter_file(sel_path)
+                page.open(ft.SnackBar(ft.Text("Content saved to chapter.")))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        def _save_to_new_planning(e2):
+            name = (planning_name_field.value or "").strip()
+            if not name:
+                page.open(ft.SnackBar(ft.Text("Enter a file name.")))
+                page.update()
+                return
+            try:
+                new_path = create_planning_file(path, name)
+                new_path.write_text(md_content["value"], encoding="utf-8")
+                page.close(dlg)
+                # Open the planning pane and load the new file
+                if not planning_open["value"]:
+                    toggle_planning_pane()
+                else:
+                    refresh_planning_list()
+                load_planning_file(new_path)
+                # Clear the chapter editor scratch state
+                current_md_path["value"] = None
+                _save_dialog_pending["value"] = False
+                md_content["value"] = ""
+                md_preview.value = ""
+                raw_editor.value = ""
+                status_chapter.value = ""
+                _scratch_placeholder.visible = True
+                _mark_dirty(False)
+                _update_word_count_internal()
+                if _pending_close["value"]:
+                    _pending_close["value"] = False
+                    page.window.destroy()
+                    return
+                page.open(ft.SnackBar(ft.Text(f"Saved to planning/{new_path.name}.")))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        def _save_to_existing_planning(e2):
+            sel = planning_dropdown.value
+            if not sel:
+                page.open(ft.SnackBar(ft.Text("Select a planning file first.")))
+                page.update()
+                return
+            try:
+                sel_path = Path(sel)
+                sel_path.write_text(md_content["value"], encoding="utf-8")
+                page.close(dlg)
+                if not planning_open["value"]:
+                    toggle_planning_pane()
+                else:
+                    refresh_planning_list()
+                load_planning_file(sel_path)
+                # Clear the chapter editor scratch state
+                current_md_path["value"] = None
+                _save_dialog_pending["value"] = False
+                md_content["value"] = ""
+                md_preview.value = ""
+                raw_editor.value = ""
+                status_chapter.value = ""
+                _scratch_placeholder.visible = True
+                _mark_dirty(False)
+                _update_word_count_internal()
+                if _pending_close["value"]:
+                    _pending_close["value"] = False
+                    page.window.destroy()
+                    return
+                page.open(ft.SnackBar(ft.Text(f"Saved to {sel_path.name}.")))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        def _on_dismiss(e2=None):
+            _save_dialog_pending["value"] = False
+            _pending_close["value"] = False  # cancel any pending close-after-save
+
+        dlg = ft.AlertDialog(
+            bgcolor=_SURFACE,
+            modal=False,
+            title=_heading("Save to…", size=18),
+            content=ft.Container(
+                ft.Column(
+                    [
+                        ft.Text(
+                            "Where would you like to save this content?",
+                            color=_TEXT_MUTED,
+                            size=13,
+                        ),
+                        ft.Container(height=16),
+
+                        # ── Chapter section ───────────────────────────────
+                        ft.Text("Chapter", color=_TEXT, size=13,
+                                weight=ft.FontWeight.W_600),
+                        ft.Container(height=8),
+                        _primary_btn("Create new chapter", on_click=_save_to_new_chapter),
+                        ft.Container(height=10),
+                        chapter_dropdown,
+                        ft.Container(height=4),
+                        _secondary_btn(
+                            "Save to selected chapter",
+                            on_click=_save_to_existing_chapter,
+                        ),
+                        ft.Container(height=16),
+
+                        # ── Planning section ──────────────────────────────
+                        _divider(),
+                        ft.Container(height=16),
+                        ft.Text("Planning", color=_TEXT, size=13,
+                                weight=ft.FontWeight.W_600),
+                        ft.Container(height=8),
+                        planning_name_field,
+                        ft.Container(height=4),
+                        _secondary_btn(
+                            "Save as new planning file",
+                            on_click=_save_to_new_planning,
+                        ),
+                        ft.Container(height=10),
+                        planning_dropdown,
+                        ft.Container(height=4),
+                        _secondary_btn(
+                            "Save to selected planning file",
+                            on_click=_save_to_existing_planning,
+                        ),
+                    ],
+                    tight=True,
+                    spacing=0,
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                width=340,
+                padding=ft.padding.only(top=4),
+            ),
+            actions=[
+                _ghost_btn(
+                    "Keep editing (save later)",
+                    on_click=lambda e2: (page.close(dlg), _on_dismiss()),
+                ),
+            ],
+            on_dismiss=_on_dismiss,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.open(dlg)
+        page.update()
+
     def _on_raw_editor_change(e):
-        md_content["value"] = raw_editor.value or ""
+        new_text = raw_editor.value or ""
+        md_content["value"] = new_text
         _mark_dirty(True)
         _update_word_count_internal()
         page.update()
@@ -594,6 +860,8 @@ def main(page: ft.Page) -> None:
         border_color="transparent",
         focused_border_color="transparent",
         content_padding=ft.padding.symmetric(horizontal=48, vertical=32),
+        hint_text="Start writing…",
+        hint_style=ft.TextStyle(color=_TEXT_MUTED, size=15, italic=True),
         on_change=_on_raw_editor_change,
         on_blur=_on_raw_editor_blur,
     )
@@ -641,39 +909,10 @@ def main(page: ft.Page) -> None:
         _update_word_count_internal()
         page.update()
 
-    def refresh_chapter_list():
-        path = repo_path_holder["value"]
-        if not path:
-            return
-        if not chapters_dir(path).exists():
-            chapter_list.controls.clear()
-            page.update()
-            return
-        items = list_chapters_with_versions(path)
-        chapter_list.controls.clear()
-        for num, ver, md_path in items:
-            is_active = (current_md_path["value"] == md_path)
-            chapter_list.controls.append(
-                ft.Container(
-                    ft.Column([
-                        ft.Text(
-                            f"Chapter {num}", size=12,
-                            color=_TEXT if is_active else _TEXT_MUTED,
-                            weight=ft.FontWeight.W_500 if is_active else ft.FontWeight.NORMAL,
-                        ),
-                        ft.Text(ver, size=10, color=_ACCENT if is_active else _BORDER),
-                    ], spacing=1, tight=True),
-                    data=md_path,
-                    on_click=lambda e, p=md_path: load_chapter_file(p),
-                    padding=ft.padding.symmetric(horizontal=12, vertical=7),
-                    bgcolor=_SURFACE2 if is_active else None,
-                    ink=True,
-                )
-            )
-        page.update()
-
-    def load_chapter_file(md_path: Path):
+    def _do_load_chapter_file(md_path: Path):
+        """Internal: unconditionally load a chapter file into the editor."""
         current_md_path["value"] = md_path
+        _save_dialog_pending["value"] = False
         try:
             text = md_path.read_text(encoding="utf-8")
         except Exception:
@@ -681,23 +920,86 @@ def main(page: ft.Page) -> None:
         md_content["value"] = text
         md_preview.value = text
         raw_editor.value = text
-        # Always start in preview mode when opening a chapter
         editor_mode["value"] = "preview"
         preview_layer.visible = True
         edit_layer.visible = False
-        # Extract chapter number for status bar
+        _scratch_placeholder.visible = False
         m = re.search(r"[Cc]hapter\s+(\d+)", str(md_path))
-        status_chapter.value = f"Chapter {m.group(1)}" if m else md_path.stem
+        chap_label = f"Chapter {m.group(1)}" if m else md_path.stem
+        status_chapter.value = chap_label
+        chapter_panel_title.value = chap_label
         _mark_dirty(False)
         _update_word_count_internal()
-        # refresh_chapter_list will call page.update() at the end
         refresh_chapter_list()
+
+    def load_chapter_file(md_path: Path):
+        """Load a chapter, prompting to save/discard scratch content first if needed."""
+        scratch_dirty = (
+            current_md_path["value"] is None
+            and md_content["value"].strip()
+        )
+        if not scratch_dirty:
+            _do_load_chapter_file(md_path)
+            return
+
+        # Scratch pad has unsaved content — ask what to do before discarding it
+        def _discard_and_open(e2):
+            page.close(guard_dlg)
+            _do_load_chapter_file(md_path)
+            page.update()
+
+        def _save_then_open(e2):
+            page.close(guard_dlg)
+            # Re-use the save dialog; after saving it will not auto-open the chapter,
+            # so we chain: after the save dialog is dismissed (saved or kept), load the chapter.
+            # We do this by temporarily monkey-patching _on_dismiss in the save dialog to
+            # also trigger the load.  Simpler: just show the save dialog and let the user
+            # choose — they can come back to open the chapter afterwards.
+            _save_dialog_pending["value"] = False
+            _show_save_to_chapter_dialog()
+            page.update()
+
+        guard_dlg = ft.AlertDialog(
+            bgcolor=_SURFACE,
+            modal=True,
+            title=_heading("Unsaved scratch content", size=18),
+            content=ft.Container(
+                ft.Text(
+                    "You have unsaved content in the scratch pad.\n"
+                    "Save it before opening this chapter, or discard it?",
+                    color=_TEXT_MUTED,
+                    size=13,
+                ),
+                width=320,
+            ),
+            actions=[
+                _ghost_btn("Cancel", on_click=lambda e2: page.close(guard_dlg)),
+                _ghost_btn("Save first…", on_click=_save_then_open),
+                ft.TextButton(
+                    "Discard & open",
+                    on_click=_discard_and_open,
+                    style=ft.ButtonStyle(
+                        color={ft.ControlState.DEFAULT: _ERROR,
+                               ft.ControlState.HOVERED: "#FF7070"},
+                        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                    ),
+                ),
+            ],
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.open(guard_dlg)
+        page.update()
 
     def save_current(e=None):
         path = current_md_path["value"]
         if not path:
-            page.open(ft.SnackBar(ft.Text("No chapter open.")))
-            page.update()
+            # If there's scratch content, offer to save it; otherwise inform user
+            if md_content["value"].strip():
+                _save_dialog_pending["value"] = False  # allow re-trigger
+                _show_save_to_chapter_dialog()
+            else:
+                page.open(ft.SnackBar(ft.Text("Nothing to save yet — start writing first.")))
+                page.update()
             return
         # If currently editing, flush the raw editor text first
         if editor_mode["value"] == "edit":
@@ -902,18 +1204,203 @@ def main(page: ft.Page) -> None:
         page.go("/repo")
         page.update()
 
-    # ── Editor layout ─────────────────────────────────────────────────────────
+    # ── Chapter sidebar (drag-to-reorder + delete) ────────────────────────────
 
-    # Narrow chapter sidebar — no header chrome, just the list
+    # chapter_order tracks the current sequence of chapter numbers so we can
+    # map drag indices back to chapter numbers during reorder.
+    chapter_order = {"value": []}  # list of int chapter numbers in display order
+
+    def _confirm_delete_chapter(num: int):
+        def do_delete(e):
+            page.close(dlg)
+            path = repo_path_holder["value"]
+            try:
+                # If the chapter being deleted is currently open, clear the editor
+                cur = current_md_path["value"]
+                if cur and re.search(rf"Chapter\s+{num}[/\\]", str(cur)):
+                    current_md_path["value"] = None
+                    _save_dialog_pending["value"] = False
+                    md_content["value"] = ""
+                    md_preview.value = ""
+                    raw_editor.value = ""
+                    status_chapter.value = ""
+                    _scratch_placeholder.visible = True
+                    _mark_dirty(False)
+                    _update_word_count_internal()
+                delete_chapter(path, num)
+                refresh_chapter_list()
+                page.open(ft.SnackBar(ft.Text(f"Chapter {num} deleted.")))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        dlg = ft.AlertDialog(
+            bgcolor=_SURFACE,
+            title=_heading("Delete chapter?", size=18),
+            content=ft.Container(
+                ft.Text(
+                    f"Delete Chapter {num} and all its versions?\n"
+                    "This cannot be undone.",
+                    color=_TEXT_MUTED, size=13,
+                ),
+                width=300,
+            ),
+            actions=[
+                _ghost_btn("Cancel", on_click=lambda e: page.close(dlg)),
+                ft.TextButton(
+                    "Delete",
+                    on_click=do_delete,
+                    style=ft.ButtonStyle(
+                        color={ft.ControlState.DEFAULT: _ERROR,
+                               ft.ControlState.HOVERED: "#FF7070"},
+                        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                    ),
+                ),
+            ],
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.open(dlg)
+        page.update()
+
+    def _on_chapter_reorder(e: ft.OnReorderEvent):
+        """Called when the user drags a chapter row to a new position."""
+        path = repo_path_holder["value"]
+        if not path:
+            return
+        old_order = list(chapter_order["value"])
+        if e.old_index == e.new_index or not old_order:
+            return
+        # Reorder the local list
+        item = old_order.pop(e.old_index)
+        old_order.insert(e.new_index, item)
+        chapter_order["value"] = old_order
+        try:
+            reorder_chapters(path, old_order)
+            # If the open file's chapter number changed, update current_md_path
+            cur = current_md_path["value"]
+            if cur:
+                refresh_chapter_list()
+                # Try to reopen the same chapter content at its new number
+                # (refresh_chapter_list re-scans disk, so the path will have moved)
+                # We load whichever chapter is now at the position that was opened.
+                new_chapters = list_chapters_with_versions(path)
+                if new_chapters:
+                    # Find the chapter whose new number matches the drag destination
+                    target_num = e.new_index + 1
+                    for n, v, p in new_chapters:
+                        if n == target_num:
+                            load_chapter_file(p)
+                            break
+            else:
+                refresh_chapter_list()
+        except Exception as ex:
+            page.open(ft.SnackBar(ft.Text(f"Reorder failed: {ex}")))
+            chapter_order["value"] = list(chapter_order["value"])  # keep consistent
+            refresh_chapter_list()
+        page.update()
+
+    # The reorderable list view for chapters
+    chapter_reorder_list = ft.ReorderableListView(
+        controls=[],
+        on_reorder=_on_chapter_reorder,
+        padding=ft.padding.only(bottom=4),
+        show_default_drag_handles=False,  # we supply our own drag handle icon
+    )
+
+    def refresh_chapter_list():
+        path = repo_path_holder["value"]
+        if not path:
+            return
+        if not chapters_dir(path).exists():
+            chapter_reorder_list.controls.clear()
+            chapter_order["value"] = []
+            page.update()
+            return
+        items = list_chapters_with_versions(path)
+        chapter_order["value"] = [num for num, _ver, _p in items]
+        chapter_reorder_list.controls.clear()
+        for num, ver, md_path in items:
+            is_active = (current_md_path["value"] == md_path)
+
+            chapter_reorder_list.controls.append(
+                ft.Container(
+                    key=str(num),
+                    content=ft.Row(
+                        [
+                            # Drag handle
+                            ft.ReorderableDraggable(
+                                index=chapter_order["value"].index(num),
+                                content=ft.Container(
+                                    ft.Icon(
+                                        ft.Icons.DRAG_INDICATOR,
+                                        color=_BORDER,
+                                        size=14,
+                                    ),
+                                    padding=ft.padding.only(left=4, right=2),
+                                ),
+                            ),
+                            # Chapter label (clickable)
+                            ft.Container(
+                                ft.Column(
+                                    [
+                                        ft.Text(
+                                            f"Ch. {num}",
+                                            size=12,
+                                            color=_TEXT if is_active else _TEXT_MUTED,
+                                            weight=ft.FontWeight.W_500 if is_active
+                                                   else ft.FontWeight.NORMAL,
+                                        ),
+                                        ft.Text(
+                                            ver, size=10,
+                                            color=_ACCENT if is_active else _BORDER,
+                                        ),
+                                    ],
+                                    spacing=1, tight=True,
+                                ),
+                                expand=True,
+                                on_click=lambda e, p=md_path: load_chapter_file(p),
+                                padding=ft.padding.symmetric(vertical=7),
+                                ink=True,
+                                bgcolor=_SURFACE2 if is_active else None,
+                                border_radius=4,
+                            ),
+                            # Delete button
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_size=12,
+                                icon_color=_BORDER,
+                                tooltip=f"Delete Chapter {num}",
+                                on_click=lambda e, n=num: _confirm_delete_chapter(n),
+                                style=ft.ButtonStyle(
+                                    padding=ft.padding.all(4),
+                                    overlay_color={
+                                        ft.ControlState.HOVERED: "#33E05C5C",
+                                    },
+                                ),
+                            ),
+                        ],
+                        spacing=0,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.padding.symmetric(horizontal=4),
+                )
+            )
+        page.update()
+
     sidebar = ft.Container(
         ft.Column(
             [
                 ft.Container(
-                    ft.Text("Chapters", size=11, color=_TEXT_MUTED,
-                            weight=ft.FontWeight.W_500),
-                    padding=ft.padding.only(left=12, top=14, bottom=8),
+                    ft.Row(
+                        [
+                            ft.Text("Chapters", size=11, color=_TEXT_MUTED,
+                                    weight=ft.FontWeight.W_500),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    padding=ft.padding.only(left=12, right=8, top=14, bottom=8),
                 ),
-                chapter_list,
+                ft.Container(chapter_reorder_list, expand=True),
                 ft.Container(
                     ft.TextButton(
                         "+ New chapter",
@@ -930,12 +1417,437 @@ def main(page: ft.Page) -> None:
             spacing=0,
             expand=True,
         ),
-        width=160,
+        width=172,
         bgcolor=_SURFACE,
         border=ft.border.only(right=ft.BorderSide(1, _BORDER)),
     )
 
-    # Overflow menu — all the less-frequent tools
+    # ── Chapter panel header (filename + close button) ────────────────────────
+
+    chapter_panel_title = ft.Text(
+        "New document", size=12, color=_TEXT_MUTED,
+        overflow=ft.TextOverflow.ELLIPSIS, expand=True,
+    )
+
+    def _close_chapter_panel(e=None):
+        """Close the current chapter / scratch-pad and return to blank scratch."""
+        # Guard: if scratch has unsaved content in an actual chapter, prompt first
+        if current_md_path["value"] is not None and editor_dirty["value"]:
+            def _discard(e2):
+                page.close(dlg)
+                _clear_chapter_editor()
+                page.update()
+            def _save_then_close(e2):
+                page.close(dlg)
+                save_current()
+                _clear_chapter_editor()
+            dlg = ft.AlertDialog(
+                bgcolor=_SURFACE, modal=True,
+                title=_heading("Unsaved changes", size=18),
+                content=ft.Container(
+                    ft.Text("Save changes before closing?", color=_TEXT_MUTED, size=13),
+                    width=280,
+                ),
+                actions=[
+                    _ghost_btn("Cancel", on_click=lambda e2: page.close(dlg)),
+                    _ghost_btn("Save & close", on_click=_save_then_close),
+                    ft.TextButton("Discard", on_click=_discard,
+                        style=ft.ButtonStyle(
+                            color={ft.ControlState.DEFAULT: _ERROR,
+                                   ft.ControlState.HOVERED: "#FF7070"},
+                            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                        )),
+                ],
+                shape=ft.RoundedRectangleBorder(radius=10),
+            )
+            page.open(dlg)
+            page.update()
+            return
+        _clear_chapter_editor()
+        page.update()
+
+    def _clear_chapter_editor():
+        """Reset editor to blank scratch state."""
+        current_md_path["value"] = None
+        _save_dialog_pending["value"] = False
+        md_content["value"] = ""
+        md_preview.value = ""
+        raw_editor.value = ""
+        status_chapter.value = ""
+        chapter_panel_title.value = "New document"
+        _scratch_placeholder.visible = True
+        editor_mode["value"] = "preview"
+        preview_layer.visible = True
+        edit_layer.visible = False
+        _mark_dirty(False)
+        _update_word_count_internal()
+        refresh_chapter_list()
+
+    chapter_panel_header = ft.Container(
+        ft.Row(
+            [
+                ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=12, color=_TEXT_MUTED),
+                ft.Container(width=6),
+                chapter_panel_title,
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE,
+                    icon_size=12,
+                    icon_color=_TEXT_MUTED,
+                    tooltip="Close file",
+                    on_click=_close_chapter_panel,
+                    style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=0,
+        ),
+        padding=ft.padding.only(left=12, right=4, top=6, bottom=6),
+        bgcolor=_SURFACE,
+        border=ft.border.only(bottom=ft.BorderSide(1, _BORDER)),
+    )
+
+    # ── Planning pane ──────────────────────────────────────────────────────────
+
+    planning_open = {"value": False}
+    planning_editor_open = {"value": False}  # True when a planning file is loaded
+    planning_file_list = ft.Column([], scroll=ft.ScrollMode.AUTO, expand=True, spacing=0)
+    current_planning_path = {"value": None}
+
+    # Planning uses the same dual-mode editor widgets as the chapter editor,
+    # but with its own content buffer so switching panes doesn't clobber work.
+    planning_md_content = {"value": ""}
+
+    planning_preview = ft.Markdown(
+        value="",
+        extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+        selectable=True,
+        fit_content=True,
+        md_style_sheet=_md_stylesheet,
+        code_theme=ft.MarkdownCodeTheme.TOMORROW_NIGHT,
+    )
+
+    planning_editor_mode = {"value": "preview"}
+
+    def _planning_enter_edit(e=None):
+        if planning_editor_mode["value"] == "edit":
+            return
+        planning_editor_mode["value"] = "edit"
+        planning_raw.value = planning_md_content["value"]
+        planning_preview_layer.visible = False
+        planning_edit_layer.visible = True
+        page.update()
+        planning_raw.focus()
+
+    def _planning_exit_edit(e=None):
+        if planning_editor_mode["value"] != "edit":
+            return
+        new_text = planning_raw.value or ""
+        planning_md_content["value"] = new_text
+        planning_preview.value = new_text
+        planning_editor_mode["value"] = "preview"
+        planning_preview_layer.visible = True
+        planning_edit_layer.visible = False
+        # Auto-save planning file on blur
+        p = current_planning_path["value"]
+        if p:
+            try:
+                Path(p).write_text(new_text, encoding="utf-8")
+            except Exception:
+                pass
+        page.update()
+
+    def _on_planning_raw_change(e):
+        planning_md_content["value"] = planning_raw.value or ""
+        page.update()
+
+    planning_raw = ft.TextField(
+        multiline=True,
+        min_lines=30,
+        expand=True,
+        text_style=ft.TextStyle(color=_TEXT, font_family="monospace", size=14),
+        cursor_color=_ACCENT,
+        bgcolor=_BG,
+        border_color="transparent",
+        focused_border_color="transparent",
+        content_padding=ft.padding.symmetric(horizontal=32, vertical=24),
+        on_change=_on_planning_raw_change,
+        on_blur=_planning_exit_edit,
+    )
+
+    planning_preview_layer = ft.Container(
+        content=ft.Column(
+            [
+                ft.GestureDetector(
+                    content=ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Container(
+                                    planning_preview,
+                                    padding=ft.padding.symmetric(horizontal=32, vertical=24),
+                                    expand=True,
+                                ),
+                                ft.GestureDetector(
+                                    content=ft.Container(height=200),
+                                    on_tap=_planning_enter_edit,
+                                ),
+                            ],
+                            expand=True, spacing=0,
+                        ),
+                        bgcolor=_BG, expand=True,
+                    ),
+                    on_tap=_planning_enter_edit,
+                )
+            ],
+            scroll=ft.ScrollMode.AUTO, expand=True, spacing=0,
+        ),
+        expand=True, bgcolor=_BG, visible=True,
+    )
+
+    planning_edit_layer = ft.Container(
+        content=ft.Column(
+            [planning_raw],
+            scroll=ft.ScrollMode.AUTO, expand=True, spacing=0,
+        ),
+        expand=True, bgcolor=_BG, visible=False,
+    )
+
+    planning_editor_area = ft.Stack(
+        [planning_preview_layer, planning_edit_layer],
+        expand=True,
+    )
+
+    # ── Planning editor panel header (filename + close button) ─────────────────
+    planning_panel_title = ft.Text(
+        "", size=12, color=_TEXT_MUTED,
+        overflow=ft.TextOverflow.ELLIPSIS, expand=True,
+    )
+
+    def _close_planning_editor(e=None):
+        """Close the planning editor panel (auto-saved on blur already)."""
+        current_planning_path["value"] = None
+        planning_md_content["value"] = ""
+        planning_preview.value = ""
+        planning_raw.value = ""
+        planning_panel_title.value = ""
+        planning_editor_mode["value"] = "preview"
+        planning_preview_layer.visible = True
+        planning_edit_layer.visible = False
+        planning_editor_panel.visible = False
+        planning_editor_open["value"] = False
+        _adjust_window_for_planning(editor_open=False)
+        refresh_planning_list()
+
+    planning_panel_header = ft.Container(
+        ft.Row(
+            [
+                ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=12, color=_TEXT_MUTED),
+                ft.Container(width=6),
+                planning_panel_title,
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE,
+                    icon_size=12,
+                    icon_color=_TEXT_MUTED,
+                    tooltip="Close planning file",
+                    on_click=_close_planning_editor,
+                    style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=0,
+        ),
+        padding=ft.padding.only(left=12, right=4, top=6, bottom=6),
+        bgcolor=_SURFACE,
+        border=ft.border.only(
+            left=ft.BorderSide(1, _BORDER),
+            bottom=ft.BorderSide(1, _BORDER),
+        ),
+    )
+
+    planning_editor_panel = ft.Container(
+        ft.Column(
+            [planning_panel_header, planning_editor_area],
+            spacing=0, expand=True,
+        ),
+        expand=True,
+        visible=False,
+    )
+
+    _PLANNING_EDITOR_WIDTH = 440  # px added to window when planning editor opens
+
+    def _adjust_window_for_planning(editor_open: bool):
+        """Grow / shrink the window width when the planning editor panel appears."""
+        try:
+            if editor_open:
+                page.window.width = (page.window.width or 1280) + _PLANNING_EDITOR_WIDTH
+            else:
+                page.window.width = max(
+                    900,
+                    (page.window.width or 1280) - _PLANNING_EDITOR_WIDTH,
+                )
+        except Exception:
+            pass
+
+    def load_planning_file(path: Path):
+        was_open = planning_editor_open["value"]
+        current_planning_path["value"] = path
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            text = ""
+        planning_md_content["value"] = text
+        planning_preview.value = text
+        planning_raw.value = text
+        planning_panel_title.value = path.name
+        planning_editor_mode["value"] = "preview"
+        planning_preview_layer.visible = True
+        planning_edit_layer.visible = False
+        if not was_open:
+            planning_editor_open["value"] = True
+            planning_editor_panel.visible = True
+            _adjust_window_for_planning(editor_open=True)
+        refresh_planning_list()
+
+    def refresh_planning_list():
+        path = repo_path_holder["value"]
+        if not path:
+            return
+        ensure_planning_structure(path)
+        entries = list_planning_files(path)
+        planning_file_list.controls.clear()
+        for label, fpath, is_dir in entries:
+            depth = label.count("/")
+            indent = depth * 12
+            is_active = (
+                not is_dir and current_planning_path["value"] == fpath
+            )
+            icon = ft.Icons.FOLDER_OUTLINED if is_dir else ft.Icons.ARTICLE_OUTLINED
+            icon_color = _TEXT_MUTED if is_dir else (_ACCENT if is_active else _TEXT_MUTED)
+            name = fpath.name if not is_dir else fpath.name
+            planning_file_list.controls.append(
+                ft.Container(
+                    ft.Row(
+                        [
+                            ft.Container(width=indent),
+                            ft.Icon(icon, size=12, color=icon_color),
+                            ft.Container(width=4),
+                            ft.Text(
+                                name,
+                                size=12,
+                                color=_TEXT if is_active else _TEXT_MUTED,
+                                weight=ft.FontWeight.W_500 if is_active
+                                       else ft.FontWeight.NORMAL,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                                expand=True,
+                            ),
+                        ],
+                        spacing=0,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=5),
+                    bgcolor=_SURFACE2 if is_active else None,
+                    border_radius=4,
+                    ink=not is_dir,
+                    on_click=(lambda e, p=fpath: load_planning_file(p)) if not is_dir else None,
+                )
+            )
+        page.update()
+
+    def tool_new_planning_file(e):
+        path = repo_path_holder["value"]
+        if not path:
+            return
+        name_field = _styled_field("File name (e.g. Notes.md)", width=280)
+
+        def do_create(e2):
+            name = (name_field.value or "").strip()
+            if not name:
+                return
+            try:
+                new_path = create_planning_file(path, name)
+                page.close(dlg)
+                refresh_planning_list()
+                load_planning_file(new_path)
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        dlg = ft.AlertDialog(
+            bgcolor=_SURFACE,
+            title=_heading("New planning file", size=18),
+            content=ft.Container(name_field, width=300),
+            actions=[
+                _ghost_btn("Cancel", on_click=lambda e2: page.close(dlg)),
+                _primary_btn("Create", on_click=do_create),
+            ],
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.open(dlg)
+        page.update()
+
+    def _close_planning_list(e=None):
+        """Close the planning file-list sidebar (and editor if open)."""
+        planning_open["value"] = False
+        planning_list_panel.visible = False
+        if planning_editor_open["value"]:
+            _close_planning_editor()
+        page.update()
+
+    def toggle_planning_pane(e=None):
+        if planning_open["value"]:
+            _close_planning_list()
+        else:
+            planning_open["value"] = True
+            planning_list_panel.visible = True
+            refresh_planning_list()
+            page.update()
+
+    planning_list_panel = ft.Container(
+        ft.Column(
+            [
+                # Header row
+                ft.Container(
+                    ft.Row(
+                        [
+                            ft.Text("Planning", size=11, color=_TEXT_MUTED,
+                                    weight=ft.FontWeight.W_500),
+                            ft.Container(expand=True),
+                            ft.IconButton(
+                                icon=ft.Icons.ADD,
+                                icon_size=14,
+                                icon_color=_TEXT_MUTED,
+                                tooltip="New planning file",
+                                on_click=tool_new_planning_file,
+                                style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_size=12,
+                                icon_color=_TEXT_MUTED,
+                                tooltip="Close planning",
+                                on_click=_close_planning_list,
+                                style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                            ),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.padding.only(left=12, right=4, top=8, bottom=8),
+                ),
+                # File list
+                ft.Container(planning_file_list, expand=True),
+            ],
+            spacing=0,
+            expand=True,
+        ),
+        width=180,
+        bgcolor=_SURFACE,
+        border=ft.border.only(left=ft.BorderSide(1, _BORDER)),
+        visible=False,
+    )
+
+    # Keep old name as alias for code that still references planning_pane
+    planning_pane = planning_list_panel
+
+    # ── Overflow menu — all less-frequent tools ────────────────────────────────
     tools_menu = ft.PopupMenuButton(
         content=ft.Container(
             ft.Icon(ft.Icons.MORE_HORIZ, color=_TEXT_MUTED, size=16),
@@ -944,6 +1856,11 @@ def main(page: ft.Page) -> None:
             ink=True,
         ),
         items=[
+            ft.PopupMenuItem(
+                content=ft.Text("Planning", color=_TEXT, size=13),
+                on_click=toggle_planning_pane,
+            ),
+            ft.PopupMenuItem(),  # divider
             ft.PopupMenuItem(
                 content=ft.Text("Bump version — minor", color=_TEXT, size=13),
                 on_click=lambda e: tool_bump(e, "minor"),
@@ -981,7 +1898,7 @@ def main(page: ft.Page) -> None:
         ],
     )
 
-    # Minimal status bar at the bottom
+    # ── Status bar ─────────────────────────────────────────────────────────────
     status_bar = ft.Container(
         ft.Row(
             [
@@ -1011,12 +1928,24 @@ def main(page: ft.Page) -> None:
         height=36,
     )
 
+    # ── Chapter editor panel (header + editor area) ────────────────────────────
+    chapter_panel = ft.Container(
+        ft.Column(
+            [chapter_panel_header, editor_area],
+            spacing=0, expand=True,
+        ),
+        expand=True,
+    )
+
+    # ── Main editor layout ─────────────────────────────────────────────────────
     editor_content = ft.Column(
         [
             ft.Row(
                 [
                     sidebar,
-                    editor_area,
+                    chapter_panel,
+                    planning_editor_panel,
+                    planning_list_panel,
                 ],
                 expand=True,
                 spacing=0,
@@ -1045,6 +1974,19 @@ def main(page: ft.Page) -> None:
         elif page.route == "/editor":
             if repo_path_holder["value"]:
                 refresh_chapter_list()
+            # Start with a blank scratch pad if no chapter is loaded
+            if current_md_path["value"] is None:
+                md_content["value"] = ""
+                md_preview.value = ""
+                raw_editor.value = ""
+                _save_dialog_pending["value"] = False
+                _scratch_placeholder.visible = True
+                editor_mode["value"] = "preview"
+                preview_layer.visible = True
+                edit_layer.visible = False
+                status_chapter.value = ""
+                _mark_dirty(False)
+                _update_word_count_internal()
             page.views.append(
                 ft.View("/editor", [editor_content], bgcolor=_BG, padding=0)
             )
@@ -1055,6 +1997,65 @@ def main(page: ft.Page) -> None:
         page.update()
 
     page.on_route_change = route_change
+
+    # ── Window-close guard ────────────────────────────────────────────────────
+    # Intercept the OS close button when the scratch pad has unsaved content.
+    page.window.prevent_close = True
+
+    def _on_window_event(e):
+        if e.data != "close":
+            return
+        scratch_dirty = (
+            current_md_path["value"] is None
+            and md_content["value"].strip()
+        )
+        if not scratch_dirty:
+            page.window.destroy()
+            return
+
+        def _save_and_close(e2):
+            page.close(close_dlg)
+            _pending_close["value"] = True
+            _save_dialog_pending["value"] = False
+            _show_save_to_chapter_dialog()
+            page.update()
+
+        def _discard_and_close(e2):
+            page.close(close_dlg)
+            page.window.destroy()
+
+        close_dlg = ft.AlertDialog(
+            bgcolor=_SURFACE,
+            modal=True,
+            title=_heading("Unsaved scratch content", size=18),
+            content=ft.Container(
+                ft.Text(
+                    "You have unsaved content in the scratch pad.\n"
+                    "Save it before closing, or discard it?",
+                    color=_TEXT_MUTED,
+                    size=13,
+                ),
+                width=320,
+            ),
+            actions=[
+                _ghost_btn("Cancel", on_click=lambda e2: page.close(close_dlg)),
+                _ghost_btn("Save first…", on_click=_save_and_close),
+                ft.TextButton(
+                    "Discard & close",
+                    on_click=_discard_and_close,
+                    style=ft.ButtonStyle(
+                        color={ft.ControlState.DEFAULT: _ERROR,
+                               ft.ControlState.HOVERED: "#FF7070"},
+                        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                    ),
+                ),
+            ],
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.open(close_dlg)
+        page.update()
+
+    page.window.on_event = _on_window_event
 
     # Initial route
     if not is_github_connected(config):

@@ -1,5 +1,8 @@
 """Git sync and chapter listing for the editor."""
 
+from __future__ import annotations
+
+import shutil
 from pathlib import Path
 
 from git.repo.base import Repo
@@ -28,6 +31,59 @@ def list_chapters_with_versions(repo_path: str) -> list:
     return result
 
 
+def delete_chapter(repo_path: str, chapter_num_to_delete: int) -> None:
+    """
+    Delete the Chapter folder for the given chapter number and renumber all
+    higher chapters downward so there are no gaps.
+
+    e.g. deleting Chapter 3 from [1,2,3,4,5] produces [1,2,3,4].
+    """
+    cdir = _chapters_dir(repo_path)
+    target = cdir / f"Chapter {chapter_num_to_delete}"
+    if not target.exists():
+        raise FileNotFoundError(f"Chapter {chapter_num_to_delete} not found at {target}")
+
+    shutil.rmtree(target)
+
+    # Renumber higher chapters downward to close the gap
+    chapters = sorted(
+        [
+            (chapter_num(d.name), d)
+            for d in cdir.iterdir()
+            if d.is_dir() and chapter_num(d.name) > chapter_num_to_delete
+        ],
+        key=lambda t: t[0],
+    )
+    for num, directory in chapters:
+        new_name = f"Chapter {num - 1}"
+        directory.rename(directory.parent / new_name)
+
+
+def reorder_chapters(repo_path: str, new_order: list) -> None:
+    """
+    Reorder chapters to match new_order, a list of current chapter numbers in
+    the desired sequence.  e.g. [1, 3, 2, 4] swaps chapters 2 and 3.
+
+    Uses a temporary-name shuffle to avoid collisions during renaming.
+    """
+    cdir = _chapters_dir(repo_path)
+
+    # Step 1 — rename every chapter to a temp name so we can freely reassign numbers
+    tmp_dirs = {}
+    for i, old_num in enumerate(new_order):
+        src = cdir / f"Chapter {old_num}"
+        if not src.exists():
+            raise FileNotFoundError(f"Chapter {old_num} not found")
+        tmp = cdir / f"__tmp_chapter_{i}__"
+        src.rename(tmp)
+        tmp_dirs[i] = tmp
+
+    # Step 2 — rename each temp dir to its new chapter number (1-based position)
+    for i, tmp in sorted(tmp_dirs.items()):
+        final = cdir / f"Chapter {i + 1}"
+        tmp.rename(final)
+
+
 def git_push(
     repo_path: str, token: str, message: str = "Save from Book Editor"
 ) -> None:
@@ -35,6 +91,10 @@ def git_push(
     repo = Repo(repo_path)
     if repo.is_dirty(untracked_files=True):
         repo.git.add("Chapters/")
+        # Also stage planning notes if present
+        planning = Path(repo_path) / "planning"
+        if planning.exists():
+            repo.git.add("planning/")
         repo.index.commit(message)
     origin = repo.remotes.origin
     old_url = origin.url
