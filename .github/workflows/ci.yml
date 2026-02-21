@@ -71,9 +71,13 @@ jobs:
 
       - name: Confirm binary was produced (Windows)
         if: runner.os == 'Windows'
-        run: Test-Path dist\BookEditor\BookEditor.exe
         shell: pwsh
+        run: |
+          if (-not (Test-Path dist\BookEditor.exe)) {
+            Write-Error "Expected dist\BookEditor.exe was not found"
+            exit 1
+          }
 
       - name: Confirm binary was produced (macOS)
         if: runner.os == 'macOS'
-        run: test -d dist/BookEditor.app
+        run: test -f dist/BookEditor.app/Contents/MacOS/BookEditor

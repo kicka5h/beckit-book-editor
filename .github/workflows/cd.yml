@@ -19,6 +19,7 @@ jobs:
     outputs:
       version: ${{ steps.get_version.outputs.version }}
       tag: ${{ steps.get_version.outputs.tag }}
+      should_release: ${{ steps.check_tag.outputs.should_release }}
 
     steps:
       - name: Checkout repository
@@ -36,7 +37,8 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION"    >> "$GITHUB_OUTPUT"
 
-      - name: Abort if this tag already has a release
+      - name: Check if tag already has a release
+        id: check_tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -44,7 +46,9 @@ jobs:
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Release $TAG already exists — skipping CD run."
             echo "If you want a new release, bump the version in pyproject.toml."
-            exit 1
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 
   # ─────────────────────────────────────────────
@@ -53,6 +57,7 @@ jobs:
   build:
     name: Build (${{ matrix.platform_name }})
     needs: version
+    if: needs.version.outputs.should_release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -134,6 +139,7 @@ jobs:
   release:
     name: Create GitHub Release
     needs: [version, build]
+    if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
 
     steps:
