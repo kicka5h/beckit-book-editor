@@ -489,7 +489,7 @@ def main(page: ft.Page) -> None:
         blockquote_padding  = ft.padding.only(left=16, top=8, bottom=8, right=8),
         blockquote_decoration = ft.BoxDecoration(
             border=ft.border.only(left=ft.BorderSide(3, _ACCENT)),
-            color=_SURFACE,
+            bgcolor=_SURFACE,
         ),
         code_text_style     = _md_code_style,
         codeblock_padding   = ft.padding.all(12),
