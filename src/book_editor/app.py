@@ -98,7 +98,7 @@ def _primary_btn(label: str, on_click=None, disabled: bool = False) -> ft.Elevat
     )
 
 
-def _secondary_btn(label: str, on_click=None, icon: str | None = None) -> ft.OutlinedButton:
+def _secondary_btn(label: str, on_click=None, icon=None) -> ft.OutlinedButton:
     return ft.OutlinedButton(
         label,
         on_click=on_click,
@@ -113,7 +113,7 @@ def _secondary_btn(label: str, on_click=None, icon: str | None = None) -> ft.Out
     )
 
 
-def _ghost_btn(label: str, on_click=None, icon: str | None = None, color: str = _TEXT_MUTED) -> ft.TextButton:
+def _ghost_btn(label: str, on_click=None, icon=None, color: str = _TEXT_MUTED) -> ft.TextButton:
     return ft.TextButton(
         label,
         on_click=on_click,
