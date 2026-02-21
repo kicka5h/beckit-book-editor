@@ -474,6 +474,9 @@ def main(page: ft.Page) -> None:
     editor_mode = {"value": "preview"}  # "preview" | "edit"
     # Raw markdown content is the source of truth
     md_content = {"value": ""}
+    # Tracks whether the scratch-pad save dialog has already been triggered
+    # for the current unsaved session (prevents re-triggering on every keystroke)
+    _save_dialog_pending = {"value": False}
 
     # ── Markdown style sheet — Anthropic palette ─────────────────────────────
     _md_body_style  = ft.TextStyle(color=_TEXT,       size=15, font_family="Georgia")
@@ -519,12 +522,25 @@ def main(page: ft.Page) -> None:
         code_theme=ft.MarkdownCodeTheme.TOMORROW_NIGHT,
     )
 
+    # Placeholder shown in preview mode when no chapter is open and no content yet
+    _scratch_placeholder = ft.Container(
+        ft.Text(
+            "Start writing — you'll be asked where to save it.",
+            size=15,
+            color=_TEXT_MUTED,
+            italic=True,
+        ),
+        padding=ft.padding.symmetric(horizontal=48, vertical=32),
+        visible=True,  # shown by default; hidden once content exists or chapter is open
+    )
+
     # Invisible click catcher layered over the preview; tap → switch to edit
     def _enter_edit_mode(e=None):
         if editor_mode["value"] == "edit":
             return
         editor_mode["value"] = "edit"
         raw_editor.value = md_content["value"]
+        _scratch_placeholder.visible = False
         preview_layer.visible = False
         edit_layer.visible = True
         page.update()
@@ -540,6 +556,10 @@ def main(page: ft.Page) -> None:
         editor_mode["value"] = "preview"
         preview_layer.visible = True
         edit_layer.visible = False
+        # Show placeholder only when no content and no chapter open
+        _scratch_placeholder.visible = (
+            not new_text.strip() and current_md_path["value"] is None
+        )
         # Mark dirty and update word count (batch into single page.update)
         _mark_dirty(True)
         _update_word_count_internal()
@@ -553,6 +573,8 @@ def main(page: ft.Page) -> None:
                     content=ft.Container(
                         content=ft.Column(
                             [
+                                # Placeholder shown when editor is empty and no chapter loaded
+                                _scratch_placeholder,
                                 ft.Container(
                                     md_preview,
                                     padding=ft.padding.symmetric(horizontal=48, vertical=32),
@@ -583,10 +605,121 @@ def main(page: ft.Page) -> None:
     )
 
     # ── Raw editor widget (ft.TextField) ─────────────────────────────────────
+    def _show_save_to_chapter_dialog():
+        """Show dialog prompting user to save scratch-pad content to a chapter."""
+        _save_dialog_pending["value"] = True
+        path = repo_path_holder["value"]
+        if not path:
+            return
+
+        # Build existing-chapter options
+        existing = list_chapters_with_versions(path)
+        chapter_options = [
+            ft.dropdown.Option(key=str(md_p), text=f"Chapter {n}  ({ver})")
+            for n, ver, md_p in existing
+        ]
+        chapter_dropdown = ft.Dropdown(
+            label="Existing chapter",
+            options=chapter_options,
+            border_color=_BORDER,
+            focused_border_color=_ACCENT,
+            bgcolor=_SURFACE2,
+            border_radius=6,
+            label_style=ft.TextStyle(color=_TEXT_MUTED, size=12),
+            text_style=ft.TextStyle(color=_TEXT, size=13),
+            disabled=not chapter_options,
+            hint_text="(none available)" if not chapter_options else None,
+        )
+
+        def _save_to_new(e2):
+            try:
+                create_new_chapter(chapters_dir(path))
+                new_chapters = list_chapters_with_versions(path)
+                if new_chapters:
+                    _, _, new_md_path = new_chapters[-1]
+                    # Write scratch content to the new chapter file
+                    text = md_content["value"]
+                    Path(new_md_path).write_text(text, encoding="utf-8")
+                    page.close(dlg)
+                    load_chapter_file(new_md_path)
+                    page.open(ft.SnackBar(ft.Text(f"Saved to new Chapter {new_chapters[-1][0]}.")))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        def _save_to_existing(e2):
+            sel = chapter_dropdown.value
+            if not sel:
+                page.open(ft.SnackBar(ft.Text("Select a chapter first.")))
+                page.update()
+                return
+            try:
+                sel_path = Path(sel)
+                text = md_content["value"]
+                sel_path.write_text(text, encoding="utf-8")
+                page.close(dlg)
+                load_chapter_file(sel_path)
+                page.open(ft.SnackBar(ft.Text("Content saved to chapter.")))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        def _on_dismiss(e2=None):
+            # Dialog closed without saving — reset so it can fire again on next edit
+            _save_dialog_pending["value"] = False
+
+        dlg = ft.AlertDialog(
+            bgcolor=_SURFACE,
+            modal=False,
+            title=_heading("Save to chapter", size=18),
+            content=ft.Container(
+                ft.Column(
+                    [
+                        ft.Text(
+                            "Where would you like to save this content?",
+                            color=_TEXT_MUTED,
+                            size=13,
+                        ),
+                        ft.Container(height=16),
+                        _primary_btn("Create new chapter", on_click=_save_to_new),
+                        ft.Container(height=12),
+                        _divider(),
+                        ft.Container(height=12),
+                        ft.Text("Or save to an existing chapter:", color=_TEXT_MUTED, size=13),
+                        ft.Container(height=8),
+                        chapter_dropdown,
+                        ft.Container(height=4),
+                        _secondary_btn("Save to selected chapter", on_click=_save_to_existing),
+                    ],
+                    tight=True,
+                    spacing=0,
+                ),
+                width=320,
+                padding=ft.padding.only(top=4),
+            ),
+            actions=[
+                _ghost_btn("Keep editing (save later)", on_click=lambda e2: (page.close(dlg), _on_dismiss())),
+            ],
+            on_dismiss=_on_dismiss,
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.open(dlg)
+        page.update()
+
     def _on_raw_editor_change(e):
-        md_content["value"] = raw_editor.value or ""
+        new_text = raw_editor.value or ""
+        md_content["value"] = new_text
         _mark_dirty(True)
         _update_word_count_internal()
+        # Trigger save-to-chapter dialog the first time the user types into a
+        # scratch-pad session (no chapter open, content just became non-empty)
+        if (
+            current_md_path["value"] is None
+            and new_text.strip()
+            and not _save_dialog_pending["value"]
+        ):
+            _show_save_to_chapter_dialog()
+            return  # page.update() will be called inside dialog open
         page.update()
 
     def _on_raw_editor_blur(e):
@@ -602,6 +735,8 @@ def main(page: ft.Page) -> None:
         border_color="transparent",
         focused_border_color="transparent",
         content_padding=ft.padding.symmetric(horizontal=48, vertical=32),
+        hint_text="Start writing…",
+        hint_style=ft.TextStyle(color=_TEXT_MUTED, size=15, italic=True),
         on_change=_on_raw_editor_change,
         on_blur=_on_raw_editor_blur,
     )
@@ -651,6 +786,7 @@ def main(page: ft.Page) -> None:
 
     def load_chapter_file(md_path: Path):
         current_md_path["value"] = md_path
+        _save_dialog_pending["value"] = False  # reset scratch-pad state
         try:
             text = md_path.read_text(encoding="utf-8")
         except Exception:
@@ -662,6 +798,8 @@ def main(page: ft.Page) -> None:
         editor_mode["value"] = "preview"
         preview_layer.visible = True
         edit_layer.visible = False
+        # Placeholder only shows when no chapter is open
+        _scratch_placeholder.visible = False
         # Extract chapter number for status bar
         m = re.search(r"[Cc]hapter\s+(\d+)", str(md_path))
         status_chapter.value = f"Chapter {m.group(1)}" if m else md_path.stem
@@ -673,8 +811,13 @@ def main(page: ft.Page) -> None:
     def save_current(e=None):
         path = current_md_path["value"]
         if not path:
-            page.open(ft.SnackBar(ft.Text("No chapter open.")))
-            page.update()
+            # If there's scratch content, offer to save it; otherwise inform user
+            if md_content["value"].strip():
+                _save_dialog_pending["value"] = False  # allow re-trigger
+                _show_save_to_chapter_dialog()
+            else:
+                page.open(ft.SnackBar(ft.Text("Nothing to save yet — start writing first.")))
+                page.update()
             return
         # If currently editing, flush the raw editor text first
         if editor_mode["value"] == "edit":
@@ -894,10 +1037,12 @@ def main(page: ft.Page) -> None:
                 cur = current_md_path["value"]
                 if cur and re.search(rf"Chapter\s+{num}[/\\]", str(cur)):
                     current_md_path["value"] = None
+                    _save_dialog_pending["value"] = False
                     md_content["value"] = ""
                     md_preview.value = ""
                     raw_editor.value = ""
                     status_chapter.value = ""
+                    _scratch_placeholder.visible = True
                     _mark_dirty(False)
                     _update_word_count_internal()
                 delete_chapter(path, num)
@@ -1454,6 +1599,19 @@ def main(page: ft.Page) -> None:
         elif page.route == "/editor":
             if repo_path_holder["value"]:
                 refresh_chapter_list()
+            # Start with a blank scratch pad if no chapter is loaded
+            if current_md_path["value"] is None:
+                md_content["value"] = ""
+                md_preview.value = ""
+                raw_editor.value = ""
+                _save_dialog_pending["value"] = False
+                _scratch_placeholder.visible = True
+                editor_mode["value"] = "preview"
+                preview_layer.visible = True
+                edit_layer.visible = False
+                status_chapter.value = ""
+                _mark_dirty(False)
+                _update_word_count_internal()
             page.views.append(
                 ft.View("/editor", [editor_content], bgcolor=_BG, padding=0)
             )
