@@ -185,6 +185,6 @@ jobs:
             4. Launch **Book Editor** from the Start Menu or Desktop shortcut
 
             ### Requirements
-            - A GitHub Personal Access Token with `repo` scope (entered on first launch)
+            - A GitHub account (sign-in uses GitHub Device Flow — no Personal Access Token needed)
             - Internet connection required during installation (for dependency downloads)
           files: release-assets/*

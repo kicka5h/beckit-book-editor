@@ -19,7 +19,7 @@ _DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 # This is NOT a secret — device flow requires no client secret.
 # Register your own OAuth App at github.com/settings/developers if forking.
 # Override at runtime by setting the GITHUB_CLIENT_ID environment variable.
-_OAUTH_CLIENT_ID = "YOUR_CLIENT_ID_HERE"
+_OAUTH_CLIENT_ID = "Ov23ligmSNv1BbiCocZi"
 
 
 def _client_id() -> str:
