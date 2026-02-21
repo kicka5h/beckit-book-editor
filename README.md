@@ -1,6 +1,6 @@
 ## Download and Install the Desktop App
 
-The Book Editor desktop app is distributed as a prebuilt installer — no Python or developer tools required. Download the version for your platform from the [latest release](../../releases/latest).
+The Book Editor desktop app is distributed as a prebuilt installer — no Python or developer tools required. Download the version for your platform from the [latest release](../../releases/latest). This app was built with the help of Claude.
 
 ### macOS
 
