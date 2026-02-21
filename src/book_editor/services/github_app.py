@@ -1,12 +1,101 @@
 """GitHub API and clone operations for the app (auth, list repos, create repo, clone)."""
 
+import os
 import re
+import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
+import requests
 from github import Github
 from github.GithubException import BadCredentialsException
 from git.repo.base import Repo
+
+_DEVICE_CODE_URL = "https://github.com/login/device/code"
+_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
+_DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
+
+
+def _client_id() -> str:
+    cid = os.environ.get("GITHUB_CLIENT_ID", "").strip()
+    if not cid:
+        raise RuntimeError(
+            "GITHUB_CLIENT_ID environment variable is not set. "
+            "Create a GitHub OAuth App and set this variable to its Client ID."
+        )
+    return cid
+
+
+def start_device_flow() -> dict:
+    """
+    Begin the device flow.  Returns the full response dict containing:
+      device_code, user_code, verification_uri, expires_in, interval
+    Raises RuntimeError on failure.
+    """
+    resp = requests.post(
+        _DEVICE_CODE_URL,
+        headers={"Accept": "application/json"},
+        json={"client_id": _client_id(), "scope": "repo"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if "error" in data:
+        raise RuntimeError(data.get("error_description", data["error"]))
+    return data
+
+
+def poll_device_flow(
+    device_code: str,
+    interval: int,
+    expires_in: int,
+    on_waiting: Optional[Callable[[], None]] = None,
+) -> str:
+    """
+    Poll until the user authorises the app or the device code expires.
+    Calls on_waiting() (if provided) on each authorization_pending response.
+    Returns the access token string on success.
+    Raises RuntimeError on expiry, denial, or unrecoverable error.
+    """
+    deadline = time.time() + expires_in
+    current_interval = interval
+
+    while time.time() < deadline:
+        time.sleep(current_interval)
+        resp = requests.post(
+            _ACCESS_TOKEN_URL,
+            headers={"Accept": "application/json"},
+            json={
+                "client_id": _client_id(),
+                "device_code": device_code,
+                "grant_type": _DEVICE_GRANT_TYPE,
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        if "access_token" in data:
+            return data["access_token"]
+
+        error = data.get("error", "")
+        if error == "authorization_pending":
+            if on_waiting:
+                on_waiting()
+            continue
+        elif error == "slow_down":
+            current_interval += 5
+            if on_waiting:
+                on_waiting()
+            continue
+        elif error == "access_denied":
+            raise RuntimeError("Authorization was denied.")
+        elif error == "expired_token":
+            raise RuntimeError("Device code expired. Please try again.")
+        else:
+            raise RuntimeError(data.get("error_description", error))
+
+    raise RuntimeError("Device code expired. Please try again.")
 
 
 def validate_token(token: str) -> Optional[str]:
