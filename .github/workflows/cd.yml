@@ -88,6 +88,7 @@ jobs:
           --name "BookEditor"
           --product-name "Book Editor"
           --file-description "A desktop app for writing books with GitHub version control"
+          --distpath dist
 
       # ── Windows: build NSIS installer ──
       - name: Install NSIS (Windows)
@@ -102,6 +103,7 @@ jobs:
         run: |
           & "C:\Program Files (x86)\NSIS\makensis.exe" `
             /DVERSION=${{ needs.version.outputs.version }} `
+            /DREPO_ROOT=${{ github.workspace }} `
             /V4 `
             installer.nsi
 
