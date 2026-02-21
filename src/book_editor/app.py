@@ -509,9 +509,9 @@ def main(page: ft.Page) -> None:
             ft.PopupMenuButton(
                 content=ft.Text("Bump version"),
                 items=[
-                    ft.PopupMenuItem(text="Minor", on_click=lambda e: tool_bump(e, "minor")),
-                    ft.PopupMenuItem(text="Patch", on_click=lambda e: tool_bump(e, "patch")),
-                    ft.PopupMenuItem(text="Major", on_click=lambda e: tool_bump(e, "major")),
+                    ft.PopupMenuItem(content=ft.Text("Minor"), on_click=lambda e: tool_bump(e, "minor")),
+                    ft.PopupMenuItem(content=ft.Text("Patch"), on_click=lambda e: tool_bump(e, "patch")),
+                    ft.PopupMenuItem(content=ft.Text("Major"), on_click=lambda e: tool_bump(e, "major")),
                 ],
             ),
             ft.ElevatedButton("Increment chapters", on_click=tool_increment),
