@@ -142,8 +142,10 @@ def _build_theme() -> ft.Theme:
 
 def main(page: ft.Page) -> None:
     page.title = "Book Editor"
-    page.window.min_width = 800
-    page.window.min_height = 560
+    page.window.width = 1280
+    page.window.height = 800
+    page.window.min_width = 900
+    page.window.min_height = 600
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = _BG
     page.theme = _build_theme()
