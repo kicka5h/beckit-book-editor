@@ -98,11 +98,12 @@ jobs:
       - name: Build Windows NSIS installer
         if: runner.os == 'Windows'
         shell: pwsh
+        working-directory: installer\windows
         run: |
           & "C:\Program Files (x86)\NSIS\makensis.exe" `
             /DVERSION=${{ needs.version.outputs.version }} `
             /V4 `
-            installer\windows\installer.nsi
+            installer.nsi
 
       # ── macOS: build PKG installer ──
       - name: Build macOS PKG installer
