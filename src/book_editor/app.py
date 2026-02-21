@@ -606,13 +606,13 @@ def main(page: ft.Page) -> None:
 
     # ── Raw editor widget (ft.TextField) ─────────────────────────────────────
     def _show_save_to_chapter_dialog():
-        """Show dialog prompting user to save scratch-pad content to a chapter."""
+        """Show dialog prompting user to save scratch-pad content to a chapter or planning file."""
         _save_dialog_pending["value"] = True
         path = repo_path_holder["value"]
         if not path:
             return
 
-        # Build existing-chapter options
+        # ── Chapter options ───────────────────────────────────────────────────
         existing = list_chapters_with_versions(path)
         chapter_options = [
             ft.dropdown.Option(key=str(md_p), text=f"Chapter {n}  ({ver})")
@@ -631,23 +631,49 @@ def main(page: ft.Page) -> None:
             hint_text="(none available)" if not chapter_options else None,
         )
 
-        def _save_to_new(e2):
+        # ── Planning options ──────────────────────────────────────────────────
+        ensure_planning_structure(path)
+        planning_entries = list_planning_files(path)
+        # Only .md files (not dirs) for the "existing" dropdown
+        planning_file_options = [
+            ft.dropdown.Option(key=str(fpath), text=label)
+            for label, fpath, is_dir in planning_entries
+            if not is_dir
+        ]
+        planning_dropdown = ft.Dropdown(
+            label="Existing planning file",
+            options=planning_file_options,
+            border_color=_BORDER,
+            focused_border_color=_ACCENT,
+            bgcolor=_SURFACE2,
+            border_radius=6,
+            label_style=ft.TextStyle(color=_TEXT_MUTED, size=12),
+            text_style=ft.TextStyle(color=_TEXT, size=13),
+            disabled=not planning_file_options,
+            hint_text="(none available)" if not planning_file_options else None,
+        )
+        planning_name_field = _styled_field(
+            "New planning file name (e.g. Notes.md)", width=290
+        )
+
+        # ── Handlers ─────────────────────────────────────────────────────────
+        def _save_to_new_chapter(e2):
             try:
                 create_new_chapter(chapters_dir(path))
                 new_chapters = list_chapters_with_versions(path)
                 if new_chapters:
                     _, _, new_md_path = new_chapters[-1]
-                    # Write scratch content to the new chapter file
-                    text = md_content["value"]
-                    Path(new_md_path).write_text(text, encoding="utf-8")
+                    Path(new_md_path).write_text(md_content["value"], encoding="utf-8")
                     page.close(dlg)
                     load_chapter_file(new_md_path)
-                    page.open(ft.SnackBar(ft.Text(f"Saved to new Chapter {new_chapters[-1][0]}.")))
+                    page.open(ft.SnackBar(
+                        ft.Text(f"Saved to new Chapter {new_chapters[-1][0]}.")
+                    ))
             except Exception as ex:
                 page.open(ft.SnackBar(ft.Text(str(ex))))
             page.update()
 
-        def _save_to_existing(e2):
+        def _save_to_existing_chapter(e2):
             sel = chapter_dropdown.value
             if not sel:
                 page.open(ft.SnackBar(ft.Text("Select a chapter first.")))
@@ -655,8 +681,7 @@ def main(page: ft.Page) -> None:
                 return
             try:
                 sel_path = Path(sel)
-                text = md_content["value"]
-                sel_path.write_text(text, encoding="utf-8")
+                sel_path.write_text(md_content["value"], encoding="utf-8")
                 page.close(dlg)
                 load_chapter_file(sel_path)
                 page.open(ft.SnackBar(ft.Text("Content saved to chapter.")))
@@ -664,14 +689,74 @@ def main(page: ft.Page) -> None:
                 page.open(ft.SnackBar(ft.Text(str(ex))))
             page.update()
 
+        def _save_to_new_planning(e2):
+            name = (planning_name_field.value or "").strip()
+            if not name:
+                page.open(ft.SnackBar(ft.Text("Enter a file name.")))
+                page.update()
+                return
+            try:
+                new_path = create_planning_file(path, name)
+                new_path.write_text(md_content["value"], encoding="utf-8")
+                page.close(dlg)
+                # Open the planning pane and load the new file
+                if not planning_open["value"]:
+                    toggle_planning_pane()
+                else:
+                    refresh_planning_list()
+                load_planning_file(new_path)
+                # Clear the chapter editor scratch state
+                current_md_path["value"] = None
+                _save_dialog_pending["value"] = False
+                md_content["value"] = ""
+                md_preview.value = ""
+                raw_editor.value = ""
+                status_chapter.value = ""
+                _scratch_placeholder.visible = True
+                _mark_dirty(False)
+                _update_word_count_internal()
+                page.open(ft.SnackBar(ft.Text(f"Saved to planning/{new_path.name}.")))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        def _save_to_existing_planning(e2):
+            sel = planning_dropdown.value
+            if not sel:
+                page.open(ft.SnackBar(ft.Text("Select a planning file first.")))
+                page.update()
+                return
+            try:
+                sel_path = Path(sel)
+                sel_path.write_text(md_content["value"], encoding="utf-8")
+                page.close(dlg)
+                if not planning_open["value"]:
+                    toggle_planning_pane()
+                else:
+                    refresh_planning_list()
+                load_planning_file(sel_path)
+                # Clear the chapter editor scratch state
+                current_md_path["value"] = None
+                _save_dialog_pending["value"] = False
+                md_content["value"] = ""
+                md_preview.value = ""
+                raw_editor.value = ""
+                status_chapter.value = ""
+                _scratch_placeholder.visible = True
+                _mark_dirty(False)
+                _update_word_count_internal()
+                page.open(ft.SnackBar(ft.Text(f"Saved to {sel_path.name}.")))
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
         def _on_dismiss(e2=None):
-            # Dialog closed without saving — reset so it can fire again on next edit
             _save_dialog_pending["value"] = False
 
         dlg = ft.AlertDialog(
             bgcolor=_SURFACE,
             modal=False,
-            title=_heading("Save to chapter", size=18),
+            title=_heading("Save to…", size=18),
             content=ft.Container(
                 ft.Column(
                     [
@@ -681,24 +766,53 @@ def main(page: ft.Page) -> None:
                             size=13,
                         ),
                         ft.Container(height=16),
-                        _primary_btn("Create new chapter", on_click=_save_to_new),
-                        ft.Container(height=12),
-                        _divider(),
-                        ft.Container(height=12),
-                        ft.Text("Or save to an existing chapter:", color=_TEXT_MUTED, size=13),
+
+                        # ── Chapter section ───────────────────────────────
+                        ft.Text("Chapter", color=_TEXT, size=13,
+                                weight=ft.FontWeight.W_600),
                         ft.Container(height=8),
+                        _primary_btn("Create new chapter", on_click=_save_to_new_chapter),
+                        ft.Container(height=10),
                         chapter_dropdown,
                         ft.Container(height=4),
-                        _secondary_btn("Save to selected chapter", on_click=_save_to_existing),
+                        _secondary_btn(
+                            "Save to selected chapter",
+                            on_click=_save_to_existing_chapter,
+                        ),
+                        ft.Container(height=16),
+
+                        # ── Planning section ──────────────────────────────
+                        _divider(),
+                        ft.Container(height=16),
+                        ft.Text("Planning", color=_TEXT, size=13,
+                                weight=ft.FontWeight.W_600),
+                        ft.Container(height=8),
+                        planning_name_field,
+                        ft.Container(height=4),
+                        _secondary_btn(
+                            "Save as new planning file",
+                            on_click=_save_to_new_planning,
+                        ),
+                        ft.Container(height=10),
+                        planning_dropdown,
+                        ft.Container(height=4),
+                        _secondary_btn(
+                            "Save to selected planning file",
+                            on_click=_save_to_existing_planning,
+                        ),
                     ],
                     tight=True,
                     spacing=0,
+                    scroll=ft.ScrollMode.AUTO,
                 ),
-                width=320,
+                width=340,
                 padding=ft.padding.only(top=4),
             ),
             actions=[
-                _ghost_btn("Keep editing (save later)", on_click=lambda e2: (page.close(dlg), _on_dismiss())),
+                _ghost_btn(
+                    "Keep editing (save later)",
+                    on_click=lambda e2: (page.close(dlg), _on_dismiss()),
+                ),
             ],
             on_dismiss=_on_dismiss,
             shape=ft.RoundedRectangleBorder(radius=10),
