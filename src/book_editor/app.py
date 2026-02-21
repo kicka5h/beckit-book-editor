@@ -1,7 +1,9 @@
 """Flet UI for the Book Editor desktop app."""
 
 import re
+import sys
 import threading
+import traceback
 from pathlib import Path
 
 import flet as ft
@@ -40,6 +42,13 @@ from book_editor.services import (
 from book_editor.utils import chapters_dir
 
 
+def _log(label: str, ex: BaseException) -> None:
+    """Print a labelled exception + full traceback to stderr."""
+    print(f"\n[Book Editor] {label}: {ex}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    print(file=sys.stderr)
+
+
 def main(page: ft.Page) -> None:
     page.title = "Book Editor"
     page.window.min_width = 900
@@ -71,6 +80,7 @@ def main(page: ft.Page) -> None:
         try:
             flow = start_device_flow()
         except Exception as ex:
+            _log("Device flow start failed", ex)
             signin_error.value = str(ex)
             signin_instruction.value = ""
             signin_progress.visible = False
@@ -102,6 +112,7 @@ def main(page: ft.Page) -> None:
                 on_waiting=_on_waiting,
             )
         except Exception as ex:
+            _log("Device flow poll failed", ex)
             signin_error.value = str(ex)
             signin_instruction.value = ""
             signin_user_code.value = ""
@@ -182,6 +193,7 @@ def main(page: ft.Page) -> None:
                 if not repos_dropdown.options:
                     repo_error.value = "No repositories found."
             except Exception as ex:
+                _log("Failed to load repositories", ex)
                 repo_progress.visible = False
                 repo_error.value = f"Failed to load repositories: {ex}"
             page.update()
@@ -378,8 +390,10 @@ def main(page: ft.Page) -> None:
                 else:
                     page.open(ft.SnackBar(ft.Text("Saved locally. Sign in to sync.")))
             except GitCommandError as err:
+                _log("git push failed", err)
                 page.open(ft.SnackBar(ft.Text(f"Sync failed: {err}")))
             except Exception as ex:
+                _log("Sync failed", ex)
                 page.open(ft.SnackBar(ft.Text(f"Sync failed: {ex}")))
             finally:
                 save_btn.disabled = False
