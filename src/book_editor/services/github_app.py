@@ -117,21 +117,19 @@ def validate_token(token: str) -> Optional[str]:
 def list_user_repos(token: str) -> List[Tuple[str, str, str]]:
     """
     Return list of (owner, name, clone_url) for repos the user has access to (including owned).
+    Raises on network or API errors so callers can surface them to the user.
     """
     if not (token or "").strip():
         return []
-    try:
-        g = Github(token.strip())
-        user = g.get_user()
-        repos = []
-        for repo in user.get_repos():
-            owner = repo.owner.login
-            name = repo.name
-            url = repo.clone_url
-            repos.append((owner, name, url))
-        return repos
-    except Exception:
-        return []
+    g = Github(token.strip())
+    user = g.get_user()
+    repos = []
+    for repo in user.get_repos():
+        owner = repo.owner.login
+        name = repo.name
+        url = repo.clone_url
+        repos.append((owner, name, url))
+    return repos
 
 
 def create_repo(token: str, name: str, private: bool = False, description: str = "") -> Tuple[str, str, str]:
