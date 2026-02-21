@@ -975,7 +975,7 @@ def main(page: ft.Page) -> None:
         controls=[],
         on_reorder=_on_chapter_reorder,
         padding=ft.padding.only(bottom=4),
-        build_default_drag_handles=False,  # we supply our own drag handle icon
+        show_default_drag_handles=False,  # we supply our own drag handle icon
     )
 
     def refresh_chapter_list():
@@ -999,7 +999,7 @@ def main(page: ft.Page) -> None:
                     content=ft.Row(
                         [
                             # Drag handle
-                            ft.ReorderableDragStartListener(
+                            ft.ReorderableDraggable(
                                 index=chapter_order["value"].index(num),
                                 content=ft.Container(
                                     ft.Icon(
