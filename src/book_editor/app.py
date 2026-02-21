@@ -494,7 +494,7 @@ def main(page: ft.Page) -> None:
         code_text_style     = _md_code_style,
         codeblock_padding   = ft.padding.all(12),
         codeblock_decoration = ft.BoxDecoration(
-            color=_SURFACE2,
+            bgcolor=_SURFACE2,
             border_radius=ft.border_radius.all(6),
         ),
         list_bullet_text_style = ft.TextStyle(color=_ACCENT, size=15),
