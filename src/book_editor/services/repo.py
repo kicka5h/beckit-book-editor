@@ -41,7 +41,11 @@ def git_push(
     if old_url.startswith("https://") and token:
         from urllib.parse import urlparse
         parsed = urlparse(old_url)
-        new_url = f"https://{token}@{parsed.netloc}{parsed.path}"
+        # Use parsed.hostname (strips any embedded credentials) rather than
+        # parsed.netloc, which may contain an old "user:pass@" prefix and would
+        # produce a malformed URL like https://newtoken@oldtoken@github.com/...
+        clean_host = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
+        new_url = f"https://{token}@{clean_host}{parsed.path}"
         origin.set_url(new_url)
     try:
         origin.push()

@@ -1,7 +1,9 @@
 """Flet UI for the Book Editor desktop app."""
 
 import re
+import sys
 import threading
+import traceback
 from pathlib import Path
 
 import flet as ft
@@ -40,6 +42,13 @@ from book_editor.services import (
 from book_editor.utils import chapters_dir
 
 
+def _log(label: str, ex: BaseException) -> None:
+    """Print a labelled exception + full traceback to stderr."""
+    print(f"\n[Book Editor] {label}: {ex}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    print(file=sys.stderr)
+
+
 def main(page: ft.Page) -> None:
     page.title = "Book Editor"
     page.window.min_width = 900
@@ -71,6 +80,7 @@ def main(page: ft.Page) -> None:
         try:
             flow = start_device_flow()
         except Exception as ex:
+            _log("Device flow start failed", ex)
             signin_error.value = str(ex)
             signin_instruction.value = ""
             signin_progress.visible = False
@@ -102,6 +112,7 @@ def main(page: ft.Page) -> None:
                 on_waiting=_on_waiting,
             )
         except Exception as ex:
+            _log("Device flow poll failed", ex)
             signin_error.value = str(ex)
             signin_instruction.value = ""
             signin_user_code.value = ""
@@ -182,6 +193,7 @@ def main(page: ft.Page) -> None:
                 if not repos_dropdown.options:
                     repo_error.value = "No repositories found."
             except Exception as ex:
+                _log("Failed to load repositories", ex)
                 repo_progress.visible = False
                 repo_error.value = f"Failed to load repositories: {ex}"
             page.update()
@@ -226,11 +238,11 @@ def main(page: ft.Page) -> None:
         def do_create(e2):
             name = (create_repo_name_field.value or "").strip()
             if not name:
-                page.snack_bar = ft.SnackBar(ft.Text("Enter a repository name."), open=True)
+                page.open(ft.SnackBar(ft.Text("Enter a repository name.")))
                 page.update()
                 return
             if not re.match(r"^[a-zA-Z0-9_.-]+$", name):
-                page.snack_bar = ft.SnackBar(ft.Text("Use only letters, numbers, - and _."), open=True)
+                page.open(ft.SnackBar(ft.Text("Use only letters, numbers, - and _.")))
                 page.update()
                 return
             token = token_holder.get("value") or load_config().get("github_token") or ""
@@ -248,7 +260,7 @@ def main(page: ft.Page) -> None:
                 page.update()
                 page.go("/editor")
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(str(ex)), open=True)
+                page.open(ft.SnackBar(ft.Text(str(ex))))
                 page.update()
 
         dlg = ft.AlertDialog(
@@ -350,49 +362,70 @@ def main(page: ft.Page) -> None:
     def save_current(e):
         path = current_md_path["value"]
         if not path:
-            page.snack_bar = ft.SnackBar(ft.Text("No chapter open."), open=True)
+            page.open(ft.SnackBar(ft.Text("No chapter open.")))
             page.update()
             return
+
+        # Write file immediately on main thread so content is flushed before push
         try:
             Path(path).write_text(editor.value or "", encoding="utf-8")
-            _set_dirty(False)
-            token = token_holder["value"] or load_config().get("github_token")
-            if token:
-                try:
-                    git_push(repo_path_holder["value"], token)
-                    page.snack_bar = ft.SnackBar(ft.Text("Saved and pushed to GitHub."), open=True)
-                except GitCommandError as err:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"Push failed: {err}"), open=True)
-            else:
-                page.snack_bar = ft.SnackBar(ft.Text("Saved locally. Sign in to push."), open=True)
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"Save failed: {ex}"), open=True)
+            page.open(ft.SnackBar(ft.Text(f"Save failed: {ex}")))
+            page.update()
+            return
+
+        _set_dirty(False)
+
+        # Disable button and show saving state while push runs in background
+        save_btn.disabled = True
+        save_btn_label.value = "Saving…"
         page.update()
+
+        def _push():
+            token = token_holder["value"] or load_config().get("github_token")
+            try:
+                if token:
+                    git_push(repo_path_holder["value"], token)
+                    page.open(ft.SnackBar(ft.Text("Saved and synced to GitHub.")))
+                else:
+                    page.open(ft.SnackBar(ft.Text("Saved locally. Sign in to sync.")))
+            except GitCommandError as err:
+                _log("git push failed", err)
+                page.open(ft.SnackBar(ft.Text(f"Sync failed: {err}")))
+            except Exception as ex:
+                _log("Sync failed", ex)
+                page.open(ft.SnackBar(ft.Text(f"Sync failed: {ex}")))
+            finally:
+                save_btn.disabled = False
+                save_btn_label.value = "Save"
+                page.update()
+
+        threading.Thread(target=_push, daemon=True).start()
 
     def tool_new_chapter(e):
         path = repo_path_holder["value"]
         if not path:
-            page.snack_bar = ft.SnackBar(ft.Text("No project loaded."), open=True)
+            page.open(ft.SnackBar(ft.Text("No project loaded.")))
             page.update()
             return
         try:
             create_new_chapter(chapters_dir(path))
             refresh_chapter_list()
-            page.snack_bar = ft.SnackBar(ft.Text("New chapter created."), open=True)
+            page.open(ft.SnackBar(ft.Text("New chapter created.")))
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(str(ex)), open=True)
+            page.open(ft.SnackBar(ft.Text(str(ex))))
         page.update()
 
     def tool_bump(e, bump_type: str):
         path = repo_path_holder["value"]
         cur = current_md_path["value"]
         if not path or not cur:
-            page.snack_bar = ft.SnackBar(ft.Text("Open a chapter first."), open=True)
+            page.open(ft.SnackBar(ft.Text("Open a chapter first.")))
             page.update()
             return
         m = re.search(r"[Cc]hapter\s+(\d+)", str(cur))
         if not m:
-            page.snack_bar = ft.SnackBar(ft.Text("Could not detect chapter number."), open=True)
+            page.open(ft.SnackBar(ft.Text("Could not detect chapter number.")))
             page.update()
             return
         num = int(m.group(1))
@@ -404,15 +437,15 @@ def main(page: ft.Page) -> None:
                 if n == num:
                     load_chapter_file(p)
                     break
-            page.snack_bar = ft.SnackBar(ft.Text(f"Bumped {bump_type} for chapter {num}."), open=True)
+            page.open(ft.SnackBar(ft.Text(f"Bumped {bump_type} for chapter {num}.")))
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(str(ex)), open=True)
+            page.open(ft.SnackBar(ft.Text(str(ex))))
         page.update()
 
     def tool_increment(e):
         path = repo_path_holder["value"]
         if not path:
-            page.snack_bar = ft.SnackBar(ft.Text("No project loaded."), open=True)
+            page.open(ft.SnackBar(ft.Text("No project loaded.")))
             page.update()
             return
         after = ft.TextField(label="Increment chapters after number", keyboard_type=ft.KeyboardType.NUMBER)
@@ -423,10 +456,10 @@ def main(page: ft.Page) -> None:
                 success = increment_chapters(str(chapters_dir(path)), n, confirm=False)
                 if success:
                     refresh_chapter_list()
-                    page.snack_bar = ft.SnackBar(ft.Text("Chapters renumbered."), open=True)
+                    page.open(ft.SnackBar(ft.Text("Chapters renumbered.")))
                 page.close(dlg)
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(str(ex)), open=True)
+                page.open(ft.SnackBar(ft.Text(str(ex))))
             page.update()
 
         dlg = ft.AlertDialog(
@@ -443,46 +476,45 @@ def main(page: ft.Page) -> None:
     def tool_word_count(e):
         path = repo_path_holder["value"]
         if not path:
-            page.snack_bar = ft.SnackBar(ft.Text("No project loaded."), open=True)
+            page.open(ft.SnackBar(ft.Text("No project loaded.")))
             page.update()
             return
         try:
             latest = find_latest_versions(chapters_dir(path))
             count_words_in_chapters(latest)
             total = sum(cv.word_count for cv in latest.values())
-            page.snack_bar = ft.SnackBar(ft.Text(f"Total words (latest versions): {total:,}"), open=True)
+            page.open(ft.SnackBar(ft.Text(f"Total words (latest versions): {total:,}")))
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(str(ex)), open=True)
+            page.open(ft.SnackBar(ft.Text(str(ex))))
         page.update()
 
     def tool_format(e):
         path = current_md_path["value"]
         if not path:
-            page.snack_bar = ft.SnackBar(ft.Text("Open a chapter first."), open=True)
+            page.open(ft.SnackBar(ft.Text("Open a chapter first.")))
             page.update()
             return
         try:
             changed = process_file(Path(path), in_place=True)
             if changed:
                 editor.value = Path(path).read_text(encoding="utf-8")
-                page.snack_bar = ft.SnackBar(ft.Text("Formatted."), open=True)
+                page.open(ft.SnackBar(ft.Text("Formatted.")))
             else:
-                page.snack_bar = ft.SnackBar(ft.Text("No formatting changes needed."), open=True)
+                page.open(ft.SnackBar(ft.Text("No formatting changes needed.")))
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(str(ex)), open=True)
+            page.open(ft.SnackBar(ft.Text(str(ex))))
         page.update()
 
     def tool_generate_pdf(e):
         path = repo_path_holder["value"]
         if not path:
-            page.snack_bar = ft.SnackBar(ft.Text("No project loaded."), open=True)
+            page.open(ft.SnackBar(ft.Text("No project loaded.")))
             page.update()
             return
         if not check_pandoc_available():
-            page.snack_bar = ft.SnackBar(
+            page.open(ft.SnackBar(
                 ft.Text("Pandoc is not installed. Install pandoc and a LaTeX engine (e.g. pdflatex) to generate PDFs."),
-                open=True,
-            )
+            ))
             page.update()
             return
         title_field = ft.TextField(label="Book title", value="Book", width=320)
@@ -496,9 +528,9 @@ def main(page: ft.Page) -> None:
                     author=author_field.value or "",
                 )
                 page.close(dlg)
-                page.snack_bar = ft.SnackBar(ft.Text(f"PDF saved to {out}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"PDF saved to {out}")))
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"PDF failed: {ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"PDF failed: {ex}")))
             page.update()
 
         dlg = ft.AlertDialog(
@@ -513,6 +545,7 @@ def main(page: ft.Page) -> None:
         page.update()
 
     save_btn_label = ft.Text("Save")
+    save_btn = ft.ElevatedButton(content=save_btn_label, on_click=lambda e: save_current(e))
 
     def go_setup(e):
         token_holder["value"] = load_config().get("github_token", "")
@@ -536,7 +569,7 @@ def main(page: ft.Page) -> None:
             ft.ElevatedButton("Generate PDF", on_click=tool_generate_pdf),
             ft.Container(expand=True),
             ft.IconButton(ft.Icons.SETTINGS, tooltip="Settings", on_click=go_setup),
-            ft.ElevatedButton(content=save_btn_label, on_click=save_current),
+            save_btn,
         ],
     )
 
@@ -570,7 +603,6 @@ def main(page: ft.Page) -> None:
     def route_change(e):
         page.views.clear()
         cfg = load_config()
-        token_holder["value"] = (cfg.get("github_token") or "").strip()
         repo_path_holder["value"] = get_repo_path(cfg)
 
         if page.route == "/signin":

@@ -145,14 +145,23 @@ def create_repo(token: str, name: str, private: bool = False, description: str =
 def clone_repo(clone_url: str, local_path: Path, token: str) -> None:
     """
     Clone the repository to local_path. Uses token for HTTPS auth (inserted into URL).
+    After cloning the remote URL is reset to the clean (credential-free) URL so that
+    subsequent pushes don't encounter a double-credential malformed URL.
     """
     from urllib.parse import urlparse
     if token and clone_url.startswith("https://"):
         parsed = urlparse(clone_url)
-        auth_url = f"https://{token}@{parsed.netloc}{parsed.path}"
+        # Strip any existing credentials from the host, then inject the token
+        clean_host = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
+        auth_url = f"https://{token}@{clean_host}{parsed.path}"
         if parsed.query:
             auth_url += "?" + parsed.query
-        Repo.clone_from(auth_url, local_path)
+        repo = Repo.clone_from(auth_url, local_path)
+        # Reset remote URL to credential-free form so it isn't persisted in .git/config
+        clean_url = f"https://{clean_host}{parsed.path}"
+        if parsed.query:
+            clean_url += "?" + parsed.query
+        repo.remotes.origin.set_url(clean_url)
     else:
         Repo.clone_from(clone_url, local_path)
 
