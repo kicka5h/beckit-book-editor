@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write   # required to create GitHub Releases and upload assets
+  id-token: write   # required for PyPI OIDC trusted publishing
 
 jobs:
   # ─────────────────────────────────────────────
@@ -253,3 +254,33 @@ jobs:
             - A GitHub account (sign-in uses GitHub Device Flow — no Personal Access Token needed)
             - PDF export is built in — Pandoc and pdflatex are bundled, no separate install needed
           files: release-assets/*
+
+  # ─────────────────────────────────────────────
+  # Publish to PyPI via OIDC Trusted Publisher
+  # (no API token needed — configure the trusted
+  #  publisher on PyPI before this will succeed)
+  # ─────────────────────────────────────────────
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [version, release]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/beckit
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Build source and wheel distributions
+        run: |
+          pip install --upgrade build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
