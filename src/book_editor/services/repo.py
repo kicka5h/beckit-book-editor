@@ -85,7 +85,10 @@ def reorder_chapters(repo_path: str, new_order: list) -> None:
 
 
 def git_fetch_and_pull(repo_path: str, token: str) -> bool:
-    """Fetch from origin and fast-forward pull if remote is ahead of local HEAD.
+    """Fetch from origin and update the local branch to match remote HEAD.
+
+    Tries a fast-forward merge first; if the branches have diverged, falls
+    back to rebase so local commits are replayed on top of the remote.
 
     Returns True if local files were updated, False if already up to date or
     if the local repo has uncommitted tracked-file changes (skips safely).
@@ -114,7 +117,11 @@ def git_fetch_and_pull(repo_path: str, token: str) -> bool:
             return False  # no remote tracking branch
         if remote_commit.hexsha == before_sha:
             return False  # already up to date
-        repo.git.merge("--ff-only", remote_ref)
+        try:
+            repo.git.merge("--ff-only", remote_ref)
+        except Exception:
+            # Branches have diverged; rebase local commits onto remote.
+            repo.git.rebase(remote_ref)
         return True
     finally:
         if old_url.startswith("https://") and token:
