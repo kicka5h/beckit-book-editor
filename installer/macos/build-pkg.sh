@@ -30,6 +30,12 @@ if [ ! -f "$SCRIPTS_DIR/postinstall" ]; then
 fi
 
 # ── Prepare staging directory ─────────────────────────────────────────────────
+echo "==> Patching Info.plist bundle name..."
+PLIST="$APP_SOURCE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName Beckit" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Beckit" "$PLIST"
+echo "    CFBundleName = $(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST")"
+
 echo "==> Staging app bundle..."
 rm -rf "$PKG_ROOT"
 mkdir -p "$PKG_ROOT/Applications"

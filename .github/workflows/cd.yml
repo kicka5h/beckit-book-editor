@@ -105,6 +105,14 @@ jobs:
           --product-name "Beckit"
           --file-description "A desktop app for writing books with GitHub version control"
 
+      - name: Patch Info.plist bundle name (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          PLIST="dist/Beckit.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName Beckit" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Beckit" "$PLIST"
+          echo "CFBundleName is now: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST")"
+
       # ── Windows: build NSIS installer ──
       - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
