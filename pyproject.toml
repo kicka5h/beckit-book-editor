@@ -13,6 +13,11 @@ authors = [
     { name = "Beckit contributors" }
 ]
 keywords = ["book", "writing", "markdown", "github", "editor"]
+
+[project.urls]
+Homepage = "https://github.com/kicka5h/beckit-book-editor"
+Source = "https://github.com/kicka5h/beckit-book-editor"
+"Bug Tracker" = "https://github.com/kicka5h/beckit-book-editor/issues"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Desktop Environment",
