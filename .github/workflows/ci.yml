@@ -6,25 +6,27 @@ on:
       - main
 
 jobs:
+  # ── Unit tests ─────────────────────────────────────────────────────────────
+  # Run the full test suite across all supported Python versions on both
+  # Ubuntu LTS releases to catch any OS-level regressions.
   test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Test (Python ${{ matrix.python-version }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        os: [ubuntu-22.04, ubuntu-24.04]
+        python-version: ['3.9', '3.10', '3.11', '3.12']
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install dependencies (with dev extras)
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -e ".[dev]"
@@ -32,26 +34,34 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v
 
+  # ── Build checks ───────────────────────────────────────────────────────────
+  # Verify that flet pack produces a working binary on every supported OS
+  # version.  macOS 13 (Intel) is no longer available on the free tier;
+  # coverage is Apple Silicon only (14 Sonoma, 15 Sequoia).
+  # Windows covers Server 2019 (Win 10 era) and Server 2022 (Win 11 era).
   build-check:
-    name: Build Check (${{ matrix.platform_name }})
+    name: Build (${{ matrix.platform_name }})
     needs: test
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            platform_name: Windows
-          - os: macos-latest
-            platform_name: macOS
-
-    runs-on: ${{ matrix.os }}
+          # ── macOS (Apple Silicon — macos-13 Intel removed from free tier) ─
+          - os: macos-14
+            platform_name: "macOS 14 Sonoma (Apple Silicon)"
+          - os: macos-15
+            platform_name: "macOS 15 Sequoia (Apple Silicon)"
+          # ── Windows ────────────────────────────────────────────────────────
+          - os: windows-2019
+            platform_name: "Windows Server 2019"
+          - os: windows-2022
+            platform_name: "Windows Server 2022"
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
@@ -62,17 +72,7 @@ jobs:
           pip install -e .
           pip install flet pyinstaller
 
-      - name: Verify flet pack runs (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: >
-          flet pack src/book_editor/__main__.py
-          --name "Beckit"
-          --product-name "Beckit"
-          --file-description "A desktop app for writing books with GitHub version control"
-          -D
-
-      - name: Verify flet pack runs (macOS)
+      - name: Build (macOS)
         if: runner.os == 'macOS'
         run: >
           flet pack src/book_editor/__main__.py
@@ -86,9 +86,23 @@ jobs:
           PLIST="dist/Beckit.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleName Beckit" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Beckit" "$PLIST"
-          echo "CFBundleName is now: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST")"
+          echo "CFBundleName: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST")"
 
-      - name: Confirm binary was produced (Windows)
+      - name: Confirm binary (macOS)
+        if: runner.os == 'macOS'
+        run: test -f dist/Beckit.app/Contents/MacOS/Beckit
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >
+          flet pack src/book_editor/__main__.py
+          --name "Beckit"
+          --product-name "Beckit"
+          --file-description "A desktop app for writing books with GitHub version control"
+          -D
+
+      - name: Confirm binary (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -96,7 +110,3 @@ jobs:
             Write-Error "Expected dist\Beckit\Beckit.exe was not found"
             exit 1
           }
-
-      - name: Confirm binary was produced (macOS)
-        if: runner.os == 'macOS'
-        run: test -f dist/Beckit.app/Contents/MacOS/Beckit
