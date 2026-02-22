@@ -3,6 +3,7 @@
 import re
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from book_editor.services import (
     find_latest_versions,
     count_words_in_chapters,
     process_file,
+    git_fetch_and_pull,
     git_push,
     list_chapters_with_versions,
     delete_chapter,
@@ -157,6 +159,7 @@ def main(page: ft.Page) -> None:
     token_holder = {"value": (config.get("github_token") or "").strip()}
     current_md_path = {"value": None}
     editor_dirty = {"value": False}
+    _last_pull_check = {"value": 0.0}
 
     # ── Sign-in ──────────────────────────────────────────────────────────────
     signin_user_code = ft.Text(
@@ -2225,20 +2228,60 @@ def main(page: ft.Page) -> None:
 
     def _on_window_event(e):
         if e.data == "focus":
-            # Reload the current chapter file if it was modified outside Beckit
+            # 1. Reload current file if changed on disk outside Beckit
             path = current_md_path["value"]
             if path and not editor_dirty["value"]:
                 try:
                     disk_text = Path(path).read_text(encoding="utf-8")
                 except Exception:
-                    return
-                if disk_text != md_content["value"]:
-                    md_content["value"] = disk_text
-                    md_preview.value = disk_text
-                    raw_editor.value = disk_text
-                    _update_word_count_internal()
-                    _update_total_word_count_internal()
-                    page.update()
+                    pass
+                else:
+                    if disk_text != md_content["value"]:
+                        md_content["value"] = disk_text
+                        md_preview.value = disk_text
+                        raw_editor.value = disk_text
+                        _update_word_count_internal()
+                        _update_total_word_count_internal()
+                        page.update()
+
+            # 2. Pull from GitHub in background (rate-limited to once per 30 s)
+            now = time.monotonic()
+            if now - _last_pull_check["value"] >= 30:
+                _last_pull_check["value"] = now
+                rpath = repo_path_holder["value"]
+                if rpath:
+                    def _do_pull():
+                        token = token_holder["value"] or load_config().get("github_token")
+                        if not token:
+                            return
+                        try:
+                            updated = git_fetch_and_pull(rpath, token)
+                        except Exception:
+                            return  # network / auth error — skip silently
+                        if not updated:
+                            return
+                        # Remote was ahead — files on disk updated by pull
+                        refresh_chapter_list()
+                        cur_path = current_md_path["value"]
+                        if cur_path:
+                            try:
+                                new_text = Path(cur_path).read_text(encoding="utf-8")
+                            except Exception:
+                                new_text = None
+                            if new_text is not None and new_text != md_content["value"]:
+                                if not editor_dirty["value"]:
+                                    md_content["value"] = new_text
+                                    md_preview.value = new_text
+                                    raw_editor.value = new_text
+                                    _update_word_count_internal()
+                                    _update_total_word_count_internal()
+                                else:
+                                    page.open(ft.SnackBar(ft.Text(
+                                        "Remote changes pulled — reopen chapter to see updates."
+                                    )))
+                        page.open(ft.SnackBar(ft.Text("Updated from GitHub.")))
+                        page.update()
+                    threading.Thread(target=_do_pull, daemon=True).start()
             return
         if e.data != "close":
             return
