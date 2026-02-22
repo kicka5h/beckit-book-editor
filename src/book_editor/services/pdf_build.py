@@ -67,7 +67,7 @@ def _augmented_env() -> dict:
                 extra.append(str(tinytex_bin))
         elif sys.platform == "win32":
             extra.append(str(res / "bin"))
-            tinytex_bin = res / "tinytex" / "bin" / "win64"
+            tinytex_bin = res / "tinytex" / "bin" / "windows"
             if tinytex_bin.exists():
                 extra.append(str(tinytex_bin))
 

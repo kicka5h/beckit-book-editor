@@ -116,8 +116,8 @@ jobs:
             -Uri "https://github.com/rstudio/tinytex-releases/releases/download/daily/TinyTeX-1.zip" `
             -OutFile "$env:TEMP\tinytex.zip"
           Expand-Archive "$env:TEMP\tinytex.zip" -DestinationPath "$env:TEMP\tinytex-extract" -Force
-          $tinytexDir = (Get-ChildItem "$env:TEMP\tinytex-extract" | Select-Object -First 1).FullName
-          $tlmgr = "$tinytexDir\bin\win64\tlmgr.bat"
+          $tinytexDir = "$env:TEMP\tinytex-extract\TinyTeX"
+          $tlmgr = "$tinytexDir\bin\windows\tlmgr.bat"
           & $tlmgr install geometry fancyhdr hyperref xcolor caption float listings lm booktabs
           Copy-Item -Recurse -Force "$tinytexDir" "dist\Beckit\tinytex"
 
