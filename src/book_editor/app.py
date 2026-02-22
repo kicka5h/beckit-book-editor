@@ -889,6 +889,7 @@ def main(page: ft.Page) -> None:
     # Status bar state
     status_chapter = ft.Text("", size=12, color=_TEXT_MUTED)
     status_words = ft.Text("", size=12, color=_TEXT_MUTED)
+    status_total_words = ft.Text("", size=12, color=_TEXT_MUTED)
     save_indicator = ft.Text("", size=12, color=_TEXT_MUTED)
 
     def _mark_dirty(dirty: bool):
@@ -908,6 +909,24 @@ def main(page: ft.Page) -> None:
 
     def _update_word_count():
         _update_word_count_internal()
+        page.update()
+
+    def _update_total_word_count_internal():
+        """Recount total words across all chapters (latest versions) from disk."""
+        path = repo_path_holder["value"]
+        if not path:
+            status_total_words.value = ""
+            return
+        try:
+            latest = find_latest_versions(chapters_dir(path))
+            count_words_in_chapters(latest)
+            total = sum(cv.word_count for cv in latest.values())
+            status_total_words.value = f"{total:,} total"
+        except Exception:
+            status_total_words.value = ""
+
+    def _update_total_word_count():
+        _update_total_word_count_internal()
         page.update()
 
     def _do_load_chapter_file(md_path: Path):
@@ -931,6 +950,7 @@ def main(page: ft.Page) -> None:
         chapter_panel_title.value = chap_label
         _mark_dirty(False)
         _update_word_count_internal()
+        _update_total_word_count_internal()
         refresh_chapter_list()
 
     def load_chapter_file(md_path: Path):
@@ -1035,6 +1055,7 @@ def main(page: ft.Page) -> None:
                 save_indicator.value = "Sync failed"
             finally:
                 save_indicator.color = _TEXT_MUTED
+                _update_total_word_count_internal()
                 page.update()
 
         threading.Thread(target=_push, daemon=True).start()
@@ -1488,6 +1509,7 @@ def main(page: ft.Page) -> None:
         edit_layer.visible = False
         _mark_dirty(False)
         _update_word_count_internal()
+        _update_total_word_count_internal()
         refresh_chapter_list()
 
     chapter_panel_header = ft.Container(
@@ -1912,6 +1934,8 @@ def main(page: ft.Page) -> None:
                 status_chapter,
                 ft.Container(width=16),
                 status_words,
+                ft.Container(width=12),
+                status_total_words,
                 ft.Container(expand=True),
                 save_indicator,
                 ft.Container(width=12),
@@ -1994,6 +2018,7 @@ def main(page: ft.Page) -> None:
                 status_chapter.value = ""
                 _mark_dirty(False)
                 _update_word_count_internal()
+                _update_total_word_count_internal()
             page.views.append(
                 ft.View("/editor", [editor_content], bgcolor=_BG, padding=0)
             )
