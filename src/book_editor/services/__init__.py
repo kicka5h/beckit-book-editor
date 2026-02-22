@@ -1,4 +1,4 @@
-"""Services: chapter versioning, create chapter, increment chapters, word count, format, git sync, GitHub app, PDF build, planning."""
+"""Services: chapter versioning, create chapter, increment chapters, word count, format, git sync, GitHub app, PDF build, planning, auto-versioning."""
 
 from book_editor.services.chapter_version import ChapterVersionManager
 from book_editor.services.create_chapter import create_new_chapter
@@ -21,6 +21,7 @@ from book_editor.services.github_app import (
     poll_device_flow,
 )
 from book_editor.services.pdf_build import build_pdf, get_latest_chapter_files, check_pandoc_available, check_pdflatex_available
+from book_editor.services.auto_version import classify_change
 from book_editor.services.planning import (
     planning_dir,
     ensure_planning_structure,
@@ -59,4 +60,5 @@ __all__ = [
     "create_planning_file",
     "create_planning_folder",
     "delete_planning_entry",
+    "classify_change",
 ]
