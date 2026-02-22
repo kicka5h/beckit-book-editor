@@ -40,6 +40,7 @@ from book_editor.services import (
     build_pdf,
     check_pandoc_available,
     check_pdflatex_available,
+    classify_change,
     ensure_planning_structure,
     list_planning_files,
     create_planning_file,
@@ -931,6 +932,14 @@ def main(page: ft.Page) -> None:
 
     def _do_load_chapter_file(md_path: Path):
         """Internal: unconditionally load a chapter file into the editor."""
+        # Close history viewer if switching chapters
+        if history_viewer_open["value"]:
+            history_viewer_open["value"] = False
+            current_history_path["value"] = None
+            history_preview.value = ""
+            history_panel_title.value = ""
+            history_viewer_panel.visible = False
+            _adjust_window_for_planning(editor_open=False)
         current_md_path["value"] = md_path
         _save_dialog_pending["value"] = False
         try:
@@ -948,6 +957,7 @@ def main(page: ft.Page) -> None:
         chap_label = f"Chapter {m.group(1)}" if m else md_path.stem
         status_chapter.value = chap_label
         chapter_panel_title.value = chap_label
+        history_btn.visible = True
         _mark_dirty(False)
         _update_word_count_internal()
         _update_total_word_count_internal()
@@ -1025,13 +1035,41 @@ def main(page: ft.Page) -> None:
         # If currently editing, flush the raw editor text first
         if editor_mode["value"] == "edit":
             md_content["value"] = raw_editor.value or ""
+
+        new_text = md_content["value"]
+        current_path = Path(path)
+
+        # Read the existing content for diffing
         try:
-            Path(path).write_text(md_content["value"], encoding="utf-8")
+            old_text = current_path.read_text(encoding="utf-8")
+        except Exception:
+            old_text = ""
+
+        # Classify the change and decide whether to create a new version
+        bump_type = classify_change(old_text, new_text)
+
+        try:
+            current_path.write_text(new_text, encoding="utf-8")
         except Exception as ex:
             page.open(ft.SnackBar(ft.Text(f"Save failed: {ex}")))
             page.update()
             return
 
+        if bump_type is not None:
+            # Create a new version directory for meaningful changes
+            chapter_dir = current_path.parent.parent   # .../Chapter 1
+            chapters_root = chapter_dir.parent          # .../Chapters
+            m = re.search(r"[Cc]hapter\s+(\d+)", chapter_dir.name)
+            if m:
+                try:
+                    manager = ChapterVersionManager(str(chapters_root))
+                    new_ver_dir = manager.bump_chapter(int(m.group(1)), bump_type)
+                    new_md = manager.get_markdown_file(new_ver_dir)
+                    current_md_path["value"] = str(new_md)
+                except Exception:
+                    pass  # content already written in-place — no data loss
+
+        refresh_chapter_list()
         _set_dirty(False)
         save_indicator.value = "Syncing…"
         save_indicator.color = _TEXT_MUTED
@@ -1507,10 +1545,21 @@ def main(page: ft.Page) -> None:
         editor_mode["value"] = "preview"
         preview_layer.visible = True
         edit_layer.visible = False
+        history_btn.visible = False
         _mark_dirty(False)
         _update_word_count_internal()
         _update_total_word_count_internal()
         refresh_chapter_list()
+
+    history_btn = ft.IconButton(
+        icon=ft.Icons.HISTORY,
+        icon_size=12,
+        icon_color=_TEXT_MUTED,
+        tooltip="Version history",
+        on_click=lambda e: _show_version_history(e),
+        style=ft.ButtonStyle(padding=ft.padding.all(4)),
+        visible=False,  # shown only when a chapter is open
+    )
 
     chapter_panel_header = ft.Container(
         ft.Row(
@@ -1518,6 +1567,7 @@ def main(page: ft.Page) -> None:
                 ft.Icon(ft.Icons.ARTICLE_OUTLINED, size=12, color=_TEXT_MUTED),
                 ft.Container(width=6),
                 chapter_panel_title,
+                history_btn,
                 ft.IconButton(
                     icon=ft.Icons.CLOSE,
                     icon_size=12,
@@ -1533,6 +1583,170 @@ def main(page: ft.Page) -> None:
         padding=ft.padding.only(left=12, right=4, top=6, bottom=6),
         bgcolor=_SURFACE,
         border=ft.border.only(bottom=ft.BorderSide(1, _BORDER)),
+    )
+
+    # ── Version history viewer (right pane, read-only) ────────────────────────
+
+    history_viewer_open = {"value": False}
+    current_history_path = {"value": None}
+
+    history_preview = ft.Markdown(
+        value="",
+        extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+        selectable=True,
+        fit_content=True,
+        md_style_sheet=_md_stylesheet,
+        code_theme=ft.MarkdownCodeTheme.TOMORROW_NIGHT,
+    )
+
+    history_panel_title = ft.Text(
+        "", size=12, color=_TEXT_MUTED,
+        overflow=ft.TextOverflow.ELLIPSIS, expand=True,
+    )
+
+    def _open_history_viewer(version_path: Path):
+        """Open an old version read-only in the right pane, closing planning editor first."""
+        if planning_editor_open["value"]:
+            _close_planning_editor()
+        try:
+            text = version_path.read_text(encoding="utf-8")
+        except Exception:
+            text = ""
+        current_history_path["value"] = version_path
+        history_preview.value = text
+        history_panel_title.value = f"{version_path.parent.name}  (read-only)"
+        if not history_viewer_open["value"]:
+            history_viewer_open["value"] = True
+            history_viewer_panel.visible = True
+            _adjust_window_for_planning(editor_open=True)
+        page.update()
+
+    def _close_history_viewer(e=None):
+        history_viewer_open["value"] = False
+        current_history_path["value"] = None
+        history_preview.value = ""
+        history_panel_title.value = ""
+        history_viewer_panel.visible = False
+        _adjust_window_for_planning(editor_open=False)
+        page.update()
+
+    def _restore_history_version(e=None):
+        hist_path = current_history_path["value"]
+        cur_path = current_md_path["value"]
+        if not hist_path or not cur_path:
+            return
+        try:
+            text = Path(hist_path).read_text(encoding="utf-8")
+            Path(cur_path).write_text(text, encoding="utf-8")
+            _close_history_viewer()
+            _do_load_chapter_file(Path(cur_path))
+            page.open(ft.SnackBar(ft.Text("Version restored.")))
+        except Exception as ex:
+            page.open(ft.SnackBar(ft.Text(f"Restore failed: {ex}")))
+        page.update()
+
+    def _show_version_history(e):
+        cur_path = current_md_path["value"]
+        if not cur_path:
+            return
+        chapter_dir = Path(cur_path).parent.parent
+        try:
+            version_dirs = sorted(
+                [d for d in chapter_dir.iterdir() if d.is_dir() and d.name.startswith("v")],
+                key=lambda d: ChapterVersionManager().parse_version(d.name),
+                reverse=True,
+            )
+        except Exception:
+            version_dirs = []
+        current_ver_dir = Path(cur_path).parent
+        rows = []
+        for vdir in version_dirs:
+            is_current = (vdir == current_ver_dir)
+            label = vdir.name + ("  (current)" if is_current else "")
+            try:
+                md_file = ChapterVersionManager().get_markdown_file(vdir)
+            except Exception:
+                continue
+            rows.append(ft.TextButton(
+                label,
+                disabled=is_current,
+                on_click=lambda e, p=md_file: [page.close(dlg), _open_history_viewer(p), page.update()],
+                style=ft.ButtonStyle(
+                    color={ft.ControlState.DEFAULT: _ACCENT if is_current else _TEXT},
+                    padding=ft.padding.symmetric(horizontal=12, vertical=6),
+                ),
+            ))
+        if len(rows) <= 1:
+            page.open(ft.SnackBar(ft.Text("No previous versions found.")))
+            page.update()
+            return
+        dlg = ft.AlertDialog(
+            bgcolor=_SURFACE,
+            title=_heading("Version history", size=18),
+            content=ft.Container(
+                ft.Column(rows, spacing=2, scroll=ft.ScrollMode.AUTO),
+                width=260,
+                height=min(44 * len(rows), 320),
+            ),
+            actions=[_ghost_btn("Close", on_click=lambda e: page.close(dlg))],
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.open(dlg)
+        page.update()
+
+    history_restore_btn = ft.TextButton(
+        "Restore this version",
+        on_click=_restore_history_version,
+        style=ft.ButtonStyle(
+            color={ft.ControlState.DEFAULT: _ACCENT, ft.ControlState.HOVERED: _TEXT},
+            padding=ft.padding.symmetric(horizontal=10, vertical=4),
+        ),
+    )
+
+    history_viewer_panel = ft.Container(
+        ft.Column(
+            [
+                # Header
+                ft.Container(
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.HISTORY, size=12, color=_TEXT_MUTED),
+                            ft.Container(width=6),
+                            history_panel_title,
+                            history_restore_btn,
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_size=12,
+                                icon_color=_TEXT_MUTED,
+                                tooltip="Close history view",
+                                on_click=_close_history_viewer,
+                                style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                            ),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=0,
+                    ),
+                    padding=ft.padding.only(left=12, right=4, top=6, bottom=6),
+                    bgcolor=_SURFACE,
+                    border=ft.border.only(bottom=ft.BorderSide(1, _BORDER)),
+                ),
+                # Content
+                ft.Container(
+                    ft.Column(
+                        [history_preview],
+                        scroll=ft.ScrollMode.AUTO,
+                        expand=True,
+                    ),
+                    expand=True,
+                    padding=ft.padding.all(16),
+                ),
+            ],
+            spacing=0,
+            expand=True,
+        ),
+        expand=True,
+        visible=False,
+        border=ft.border.only(left=ft.BorderSide(1, _BORDER)),
     )
 
     # ── Planning pane ──────────────────────────────────────────────────────────
@@ -1949,6 +2163,7 @@ def main(page: ft.Page) -> None:
                 [
                     sidebar,
                     chapter_panel,
+                    history_viewer_panel,
                     planning_editor_panel,
                     planning_list_panel,
                 ],
