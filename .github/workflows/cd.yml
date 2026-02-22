@@ -148,9 +148,8 @@ jobs:
                -o /tmp/tinytex.tgz
           mkdir -p /tmp/tinytex-extract
           tar -xzf /tmp/tinytex.tgz -C /tmp/tinytex-extract
-          TINYTEX_DIR="/tmp/tinytex-extract/.TinyTeX"
-          export PATH="$TINYTEX_DIR/bin/universal-darwin:$PATH"
-          tlmgr install geometry fancyhdr hyperref xcolor caption float listings lm booktabs
+          TINYTEX_DIR="/tmp/tinytex-extract/TinyTeX"
+          "$TINYTEX_DIR/bin/universal-darwin/tlmgr" install geometry fancyhdr hyperref xcolor caption float listings lm booktabs
           mkdir -p dist/Beckit.app/Contents/Resources/tinytex
           cp -R "$TINYTEX_DIR/." dist/Beckit.app/Contents/Resources/tinytex/
 
