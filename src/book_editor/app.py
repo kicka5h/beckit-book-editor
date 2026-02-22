@@ -1090,7 +1090,15 @@ def main(page: ft.Page) -> None:
                     save_indicator.value = "Saved locally"
             except GitCommandError as err:
                 _log("git push failed", err)
-                page.open(ft.SnackBar(ft.Text(f"Sync failed: {err}")))
+                if "push declined due to repository rule violations" in str(err):
+                    msg = (
+                        "Sync failed: GitHub rejected the push because 'main' is "
+                        "protected. Go to your repo Settings → Branches on GitHub "
+                        "and remove the branch protection rule for 'main'."
+                    )
+                else:
+                    msg = f"Sync failed: {err}"
+                page.open(ft.SnackBar(ft.Text(msg), duration=8000))
                 save_indicator.value = "Sync failed"
             except Exception as ex:
                 _log("Sync failed", ex)
