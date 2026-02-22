@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from git.exc import GitCommandError
 from git.repo.base import Repo
 
 from book_editor.services.chapter_version import ChapterVersionManager
@@ -151,8 +152,28 @@ def git_push(
         clean_host = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
         new_url = f"https://{token}@{clean_host}{parsed.path}"
         origin.set_url(new_url)
+    def _push_or_raise():
+        """Push and raise GitCommandError if the remote rejects it."""
+        results = origin.push()
+        rejected = [r for r in results if r.flags & r.ERROR]
+        if rejected:
+            raise GitCommandError(
+                "git push", 1, stderr=rejected[0].summary
+            )
+
     try:
-        origin.push()
+        try:
+            _push_or_raise()
+        except Exception:
+            # Push was rejected (remote moved ahead). Fetch, rebase, then retry.
+            origin.fetch()
+            remote_ref = f"origin/{repo.active_branch.name}"
+            try:
+                repo.git.rebase(remote_ref)
+            except Exception:
+                repo.git.rebase("--abort")
+                raise
+            _push_or_raise()
     finally:
         if old_url.startswith("https://") and token:
             origin.set_url(old_url)
