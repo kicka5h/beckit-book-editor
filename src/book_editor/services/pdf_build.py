@@ -184,21 +184,27 @@ def build_pdf(
 
 def check_pandoc_available() -> bool:
     """Return True if pandoc is available (bundled or on PATH)."""
-    result = subprocess.run(
-        [_resolve_bin("pandoc"), "--version"],
-        capture_output=True,
-        text=True,
-        env=_augmented_env(),
-    )
-    return result.returncode == 0
+    try:
+        result = subprocess.run(
+            [_resolve_bin("pandoc"), "--version"],
+            capture_output=True,
+            text=True,
+            env=_augmented_env(),
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
 
 
 def check_pdflatex_available() -> bool:
     """Return True if pdflatex is available (bundled or on PATH)."""
-    result = subprocess.run(
-        ["pdflatex", "--version"],
-        capture_output=True,
-        text=True,
-        env=_augmented_env(),
-    )
-    return result.returncode == 0
+    try:
+        result = subprocess.run(
+            [_resolve_bin("pdflatex"), "--version"],
+            capture_output=True,
+            text=True,
+            env=_augmented_env(),
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False

@@ -1,10 +1,13 @@
 """Flet UI for the Beckit desktop app."""
 
+import os
 import re
+import subprocess
 import sys
 import threading
 import time
 import traceback
+from datetime import datetime
 from pathlib import Path
 
 import flet as ft
@@ -1236,42 +1239,158 @@ def main(page: ft.Page) -> None:
             page.open(ft.SnackBar(ft.Text("No project loaded.")))
             page.update()
             return
-        if not check_pandoc_available():
-            page.open(ft.SnackBar(
-                ft.Text("PDF tools not found. Please reinstall Beckit."),
-            ))
-            page.update()
-            return
-        if not check_pdflatex_available():
-            page.open(ft.SnackBar(
-                ft.Text("pdflatex not found. Please reinstall Beckit."),
-            ))
-            page.update()
-            return
-        title_field = _styled_field("Book title", width=300)
-        title_field.value = "Book"
-        author_field = _styled_field("Author", width=300)
 
-        def do_pdf(e2):
-            try:
-                out = build_pdf(path, title=title_field.value or "Book",
-                                author=author_field.value or "")
-                page.close(dlg)
-                page.open(ft.SnackBar(ft.Text(f"PDF saved to {out}")))
-            except Exception as ex:
-                page.open(ft.SnackBar(ft.Text(f"PDF failed: {ex}")))
+        title_field = _styled_field("Book title", width=260)
+        title_field.value = "Book"
+        author_field = _styled_field("Author", width=260)
+        status_text = ft.Text("", color=_TEXT_MUTED, size=12)
+        generate_btn = _primary_btn("Save")
+        save_open_btn = _primary_btn("Save & Open")
+
+        chosen_path: dict = {"value": None}
+        save_path_label = ft.Text(
+            "Default (project folder)", color=_TEXT_MUTED, size=12,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+
+        def _default_filename() -> str:
+            title = title_field.value or "Book"
+            safe = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "_") or "Book"
+            return f"{safe}_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+
+        def choose_location(e2):
+            """Open a native OS save-file dialog in a background thread."""
+            def _show():
+                picked = None
+                try:
+                    fname = _default_filename()
+                    if sys.platform == "darwin":
+                        script = (
+                            f'POSIX path of (choose file name with prompt "Save PDF as:" '
+                            f'default name "{fname}")'
+                        )
+                        r = subprocess.run(
+                            ["osascript", "-e", script],
+                            capture_output=True, text=True,
+                        )
+                        if r.returncode == 0:
+                            picked = r.stdout.strip()
+                    elif sys.platform == "win32":
+                        ps = (
+                            "Add-Type -AssemblyName System.Windows.Forms;"
+                            "$d=New-Object System.Windows.Forms.SaveFileDialog;"
+                            "$d.Filter='PDF files (*.pdf)|*.pdf';"
+                            f"$d.FileName='{fname}';"
+                            "if($d.ShowDialog() -eq 'OK'){$d.FileName}"
+                        )
+                        r = subprocess.run(
+                            ["powershell", "-Command", ps],
+                            capture_output=True, text=True,
+                        )
+                        if r.returncode == 0 and r.stdout.strip():
+                            picked = r.stdout.strip()
+                    else:
+                        r = subprocess.run(
+                            ["zenity", "--file-selection", "--save",
+                             "--confirm-overwrite",
+                             f"--filename={fname}",
+                             "--file-filter=PDF files | *.pdf"],
+                            capture_output=True, text=True,
+                        )
+                        if r.returncode == 0:
+                            picked = r.stdout.strip()
+                except Exception:
+                    pass
+                if picked:
+                    chosen_path["value"] = picked
+                    save_path_label.value = Path(picked).name
+                    save_path_label.color = _TEXT
+                    page.update()
+
+            threading.Thread(target=_show, daemon=True).start()
+
+        choose_btn = _ghost_btn("Choose…", on_click=choose_location)
+
+        def do_pdf(open_after: bool):
+            generate_btn.disabled = True
+            save_open_btn.disabled = True
+            status_text.value = "Generating…"
+            status_text.color = _TEXT_MUTED
+            page.update()
+
+            def _run():
+                try:
+                    if not check_pandoc_available():
+                        raise RuntimeError(
+                            "pandoc not found. Install pandoc (brew install pandoc) "
+                            "or reinstall Beckit."
+                        )
+                    if not check_pdflatex_available():
+                        raise RuntimeError(
+                            "pdflatex not found. Install a TeX distribution "
+                            "(brew install --cask mactex-no-gui) or reinstall Beckit."
+                        )
+                    out = build_pdf(
+                        path,
+                        output_path=chosen_path["value"],
+                        title=title_field.value or "Book",
+                        author=author_field.value or "",
+                    )
+                    if open_after:
+                        if sys.platform == "darwin":
+                            subprocess.run(["open", str(out)])
+                        elif sys.platform == "win32":
+                            os.startfile(str(out))
+                        else:
+                            subprocess.run(["xdg-open", str(out)])
+                    page.close(dlg)
+                    page.open(ft.SnackBar(ft.Text(f"PDF saved: {out}"), duration=6000))
+                except Exception as ex:
+                    status_text.value = str(ex)
+                    status_text.color = _ERROR
+                    generate_btn.disabled = False
+                    save_open_btn.disabled = False
+                page.update()
+
+            threading.Thread(target=_run, daemon=True).start()
+
+        generate_btn.on_click = lambda e2: do_pdf(False)
+        save_open_btn.on_click = lambda e2: do_pdf(True)
+
+        def on_cancel(e2):
+            page.close(dlg)
             page.update()
 
         dlg = ft.AlertDialog(
             bgcolor=_SURFACE,
             title=_heading("Generate PDF", size=18),
             content=ft.Container(
-                ft.Column([title_field, ft.Container(height=8), author_field], tight=True),
-                width=320,
+                ft.Column(
+                    [
+                        title_field,
+                        ft.Container(height=8),
+                        author_field,
+                        ft.Container(height=16),
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.FOLDER_OPEN, color=_TEXT_MUTED, size=16),
+                                save_path_label,
+                                choose_btn,
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Container(height=4),
+                        status_text,
+                    ],
+                    tight=True,
+                ),
+                width=360,
             ),
             actions=[
-                _ghost_btn("Cancel", on_click=lambda e2: page.close(dlg)),
-                _primary_btn("Generate", on_click=do_pdf),
+                _ghost_btn("Cancel", on_click=on_cancel),
+                save_open_btn,
+                generate_btn,
             ],
             shape=ft.RoundedRectangleBorder(radius=10),
         )
