@@ -13,11 +13,6 @@ authors = [
     { name = "Beckit contributors" }
 ]
 keywords = ["book", "writing", "markdown", "github", "editor"]
-
-[project.urls]
-Homepage = "https://github.com/kicka5h/beckit-book-editor"
-Source = "https://github.com/kicka5h/beckit-book-editor"
-"Bug Tracker" = "https://github.com/kicka5h/beckit-book-editor/issues"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Desktop Environment",
@@ -31,6 +26,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Text Editors",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kicka5h/beckit-book-editor"
+Source = "https://github.com/kicka5h/beckit-book-editor"
+"Bug Tracker" = "https://github.com/kicka5h/beckit-book-editor/issues"
 dependencies = [
     "flet>=0.24.0",
     "GitPython>=3.1.0",
