@@ -3,6 +3,7 @@
 import re
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from book_editor.services import (
     find_latest_versions,
     count_words_in_chapters,
     process_file,
+    git_fetch_and_pull,
     git_push,
     list_chapters_with_versions,
     delete_chapter,
@@ -157,6 +159,8 @@ def main(page: ft.Page) -> None:
     token_holder = {"value": (config.get("github_token") or "").strip()}
     current_md_path = {"value": None}
     editor_dirty = {"value": False}
+    _last_focus_trigger = {"value": 0.0}
+    _pull_in_progress = {"value": False}
 
     # ── Sign-in ──────────────────────────────────────────────────────────────
     signin_user_code = ft.Text(
@@ -565,8 +569,9 @@ def main(page: ft.Page) -> None:
         _scratch_placeholder.visible = (
             not new_text.strip() and current_md_path["value"] is None
         )
-        # Mark dirty and update word count (batch into single page.update)
-        _mark_dirty(True)
+        # Dirty state is managed by _on_raw_editor_change (fires on every
+        # keystroke), so don't touch it here — exiting edit mode without
+        # typing must not mark the document as dirty.
         _update_word_count_internal()
         page.update()
 
@@ -2176,6 +2181,60 @@ def main(page: ft.Page) -> None:
         spacing=0,
     )
 
+    # ── GitHub sync ───────────────────────────────────────────────────────────
+    _SYNC_LOG = Path("/tmp/beckit_sync.log")
+
+    def _slog(msg: str) -> None:
+        """Write to a file log (bypasses Flet's early stderr capture) and stderr."""
+        try:
+            with _SYNC_LOG.open("a") as f:
+                f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+        except Exception:
+            pass
+        print(f"[Beckit] {msg}", file=sys.stderr, flush=True)
+
+    def _do_startup_pull():
+        """Pull from GitHub once at startup, then refresh the chapter sidebar.
+
+        The app starts in the scratchpad (no chapter open), so there is nothing
+        to reload in the editor. Refreshing the sidebar is enough — when the
+        user clicks any chapter it will be read from the now-updated disk.
+        """
+        if _pull_in_progress["value"]:
+            _slog("Startup pull: already in progress — skipping")
+            return
+        _pull_in_progress["value"] = True
+        try:
+            rpath = repo_path_holder["value"]
+            if not rpath:
+                _slog("Startup pull: no repo path")
+                return
+            token = token_holder["value"] or load_config().get("github_token")
+            if not token:
+                _slog("Startup pull: no token")
+                return
+
+            _slog("Startup pull: beginning")
+            save_indicator.value = "Syncing with GitHub…"
+            save_indicator.color = _TEXT_MUTED
+            page.update()
+
+            try:
+                git_fetch_and_pull(rpath, token)
+            except Exception as ex:
+                _slog(f"Startup pull error: {ex}")
+                save_indicator.value = "GitHub sync error"
+                save_indicator.color = _ERROR
+                page.update()
+                return
+
+            _slog("Startup pull: done — refreshing sidebar")
+            refresh_chapter_list()
+            save_indicator.value = ""
+            page.update()
+        finally:
+            _pull_in_progress["value"] = False
+
     # ── Routing ───────────────────────────────────────────────────────────────
     def route_change(e):
         page.views.clear()
@@ -2224,6 +2283,31 @@ def main(page: ft.Page) -> None:
     page.window.prevent_close = True
 
     def _on_window_event(e):
+        if e.data == "focus":
+            # Debounce: Flet fires multiple focus events in rapid succession
+            # (~0.3 s apart). Ignore duplicates within 0.5 s so that a quick
+            # switch-away-and-back still triggers a reload after 0.5 s.
+            now = time.monotonic()
+            if now - _last_focus_trigger["value"] < 0.5:
+                return
+            _last_focus_trigger["value"] = now
+            # Reload current file if it changed on disk outside Beckit
+            # (e.g. user edited in another editor and switched back).
+            path = current_md_path["value"]
+            if path and not editor_dirty["value"]:
+                try:
+                    disk_text = Path(path).read_text(encoding="utf-8")
+                except Exception:
+                    pass
+                else:
+                    if disk_text != md_content["value"]:
+                        md_content["value"] = disk_text
+                        md_preview.value = disk_text
+                        raw_editor.value = disk_text
+                        _update_word_count_internal()
+                        _update_total_word_count_internal()
+                        page.update()
+            return
         if e.data != "close":
             return
         scratch_dirty = (
@@ -2294,3 +2378,10 @@ def main(page: ft.Page) -> None:
         else:
             page.route = "/editor"
     route_change(None)
+
+    # Pull from GitHub once at startup, after a short delay to let Flet's viewer
+    # finish initializing (early stdout/stderr is captured by the launcher).
+    def _startup_sync():
+        time.sleep(5)
+        _do_startup_pull()
+    threading.Thread(target=_startup_sync, daemon=True).start()

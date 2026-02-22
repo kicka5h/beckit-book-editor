@@ -6,6 +6,7 @@ from book_editor.services.increment_chapters import increment_chapters
 from book_editor.services.count_chapter_words import find_latest_versions, count_words_in_chapters
 from book_editor.services.format_markdown import format_markdown, process_file
 from book_editor.services.repo import (
+    git_fetch_and_pull,
     git_push,
     list_chapters_with_versions,
     delete_chapter,
@@ -39,6 +40,7 @@ __all__ = [
     "count_words_in_chapters",
     "format_markdown",
     "process_file",
+    "git_fetch_and_pull",
     "git_push",
     "list_chapters_with_versions",
     "delete_chapter",

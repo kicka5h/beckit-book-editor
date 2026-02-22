@@ -84,6 +84,50 @@ def reorder_chapters(repo_path: str, new_order: list) -> None:
         tmp.rename(final)
 
 
+def git_fetch_and_pull(repo_path: str, token: str) -> bool:
+    """Fetch from origin and update the local branch to match remote HEAD.
+
+    Tries a fast-forward merge first; if the branches have diverged, falls
+    back to rebase so local commits are replayed on top of the remote.
+
+    Returns True if local files were updated, False if already up to date or
+    if the local repo has uncommitted tracked-file changes (skips safely).
+    Raises git.exc.GitCommandError on network/auth failure.
+    """
+    repo = Repo(repo_path)
+
+    if repo.is_dirty(untracked_files=False):
+        return False  # uncommitted changes — skip to avoid conflicts
+
+    origin = repo.remotes.origin
+    old_url = origin.url
+    if old_url.startswith("https://") and token:
+        from urllib.parse import urlparse
+        parsed = urlparse(old_url)
+        clean_host = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
+        new_url = f"https://{token}@{clean_host}{parsed.path}"
+        origin.set_url(new_url)
+    try:
+        before_sha = repo.head.commit.hexsha
+        origin.fetch()
+        try:
+            remote_ref = f"origin/{repo.active_branch.name}"
+            remote_commit = repo.commit(remote_ref)
+        except Exception:
+            return False  # no remote tracking branch
+        if remote_commit.hexsha == before_sha:
+            return False  # already up to date
+        try:
+            repo.git.merge("--ff-only", remote_ref)
+        except Exception:
+            # Branches have diverged; rebase local commits onto remote.
+            repo.git.rebase(remote_ref)
+        return True
+    finally:
+        if old_url.startswith("https://") and token:
+            origin.set_url(old_url)
+
+
 def git_push(
     repo_path: str, token: str, message: str = "Save from Beckit"
 ) -> None:
