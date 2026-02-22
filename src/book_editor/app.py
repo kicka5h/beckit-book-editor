@@ -2264,21 +2264,43 @@ def main(page: ft.Page) -> None:
                         refresh_chapter_list()
                         cur_path = current_md_path["value"]
                         if cur_path:
-                            try:
-                                new_text = Path(cur_path).read_text(encoding="utf-8")
-                            except Exception:
-                                new_text = None
-                            if new_text is not None and new_text != md_content["value"]:
+                            # Find the latest path for this chapter after the pull.
+                            # A new version folder may have been pulled, so the path
+                            # itself could have changed even if the chapter number hasn't.
+                            m = re.search(r"[Cc]hapter\s+(\d+)", str(cur_path))
+                            new_path = None
+                            if m:
+                                cur_num = int(m.group(1))
+                                for num, _ver, md_path in list_chapters_with_versions(rpath):
+                                    if num == cur_num:
+                                        new_path = md_path
+                                        break
+                            if new_path and new_path != cur_path:
+                                # A new version was pulled — open the latest version
                                 if not editor_dirty["value"]:
-                                    md_content["value"] = new_text
-                                    md_preview.value = new_text
-                                    raw_editor.value = new_text
-                                    _update_word_count_internal()
-                                    _update_total_word_count_internal()
+                                    _do_load_chapter_file(new_path)
                                 else:
                                     page.open(ft.SnackBar(ft.Text(
                                         "Remote changes pulled — reopen chapter to see updates."
                                     )))
+                            else:
+                                # Same path — check whether the file content itself changed
+                                check_path = new_path or Path(cur_path)
+                                try:
+                                    new_text = Path(check_path).read_text(encoding="utf-8")
+                                except Exception:
+                                    new_text = None
+                                if new_text is not None and new_text != md_content["value"]:
+                                    if not editor_dirty["value"]:
+                                        md_content["value"] = new_text
+                                        md_preview.value = new_text
+                                        raw_editor.value = new_text
+                                        _update_word_count_internal()
+                                        _update_total_word_count_internal()
+                                    else:
+                                        page.open(ft.SnackBar(ft.Text(
+                                            "Remote changes pulled — reopen chapter to see updates."
+                                        )))
                         page.open(ft.SnackBar(ft.Text("Updated from GitHub.")))
                         page.update()
                     threading.Thread(target=_do_pull, daemon=True).start()
