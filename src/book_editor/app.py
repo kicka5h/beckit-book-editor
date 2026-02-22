@@ -2224,6 +2224,22 @@ def main(page: ft.Page) -> None:
     page.window.prevent_close = True
 
     def _on_window_event(e):
+        if e.data == "focus":
+            # Reload the current chapter file if it was modified outside Beckit
+            path = current_md_path["value"]
+            if path and not editor_dirty["value"]:
+                try:
+                    disk_text = Path(path).read_text(encoding="utf-8")
+                except Exception:
+                    return
+                if disk_text != md_content["value"]:
+                    md_content["value"] = disk_text
+                    md_preview.value = disk_text
+                    raw_editor.value = disk_text
+                    _update_word_count_internal()
+                    _update_total_word_count_internal()
+                    page.update()
+            return
         if e.data != "close":
             return
         scratch_dirty = (
