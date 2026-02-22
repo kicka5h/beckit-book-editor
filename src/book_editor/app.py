@@ -2103,32 +2103,6 @@ def main(page: ft.Page) -> None:
                 content=ft.Text("Planning", color=_TEXT, size=13),
                 on_click=toggle_planning_pane,
             ),
-            ft.PopupMenuItem(),  # divider
-            ft.PopupMenuItem(
-                content=ft.Text("Bump version — minor", color=_TEXT, size=13),
-                on_click=lambda e: tool_bump(e, "minor"),
-            ),
-            ft.PopupMenuItem(
-                content=ft.Text("Bump version — patch", color=_TEXT, size=13),
-                on_click=lambda e: tool_bump(e, "patch"),
-            ),
-            ft.PopupMenuItem(
-                content=ft.Text("Bump version — major", color=_TEXT, size=13),
-                on_click=lambda e: tool_bump(e, "major"),
-            ),
-            ft.PopupMenuItem(),  # divider
-            ft.PopupMenuItem(
-                content=ft.Text("Increment chapter numbers", color=_TEXT, size=13),
-                on_click=tool_increment,
-            ),
-            ft.PopupMenuItem(
-                content=ft.Text("Word count — all chapters", color=_TEXT, size=13),
-                on_click=tool_word_count,
-            ),
-            ft.PopupMenuItem(
-                content=ft.Text("Format markdown", color=_TEXT, size=13),
-                on_click=tool_format,
-            ),
             ft.PopupMenuItem(
                 content=ft.Text("Generate PDF", color=_TEXT, size=13),
                 on_click=tool_generate_pdf,
