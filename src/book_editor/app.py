@@ -149,10 +149,11 @@ def _build_theme() -> ft.Theme:
 
 def main(page: ft.Page) -> None:
     page.title = "Beckit"
-    page.window.width = 1280
-    page.window.height = 800
-    page.window.min_width = 900
-    page.window.min_height = 600
+    if not page.web:
+        page.window.width = 1280
+        page.window.height = 800
+        page.window.min_width = 900
+        page.window.min_height = 600
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = _BG
     page.theme = _build_theme()
@@ -680,7 +681,8 @@ def main(page: ft.Page) -> None:
                     page.close(dlg)
                     if _pending_close["value"]:
                         _pending_close["value"] = False
-                        page.window.destroy()
+                        if not page.web:
+                            page.window.destroy()
                         return
                     load_chapter_file(new_md_path)
                     page.open(ft.SnackBar(
@@ -702,7 +704,8 @@ def main(page: ft.Page) -> None:
                 page.close(dlg)
                 if _pending_close["value"]:
                     _pending_close["value"] = False
-                    page.window.destroy()
+                    if not page.web:
+                        page.window.destroy()
                     return
                 load_chapter_file(sel_path)
                 page.open(ft.SnackBar(ft.Text("Content saved to chapter.")))
@@ -738,7 +741,8 @@ def main(page: ft.Page) -> None:
                 _update_word_count_internal()
                 if _pending_close["value"]:
                     _pending_close["value"] = False
-                    page.window.destroy()
+                    if not page.web:
+                        page.window.destroy()
                     return
                 page.open(ft.SnackBar(ft.Text(f"Saved to planning/{new_path.name}.")))
             except Exception as ex:
@@ -772,7 +776,8 @@ def main(page: ft.Page) -> None:
                 _update_word_count_internal()
                 if _pending_close["value"]:
                     _pending_close["value"] = False
-                    page.window.destroy()
+                    if not page.web:
+                        page.window.destroy()
                     return
                 page.open(ft.SnackBar(ft.Text(f"Saved to {sel_path.name}.")))
             except Exception as ex:
@@ -2405,9 +2410,10 @@ def main(page: ft.Page) -> None:
 
     page.on_route_change = route_change
 
-    # ── Window-close guard ────────────────────────────────────────────────────
+    # ── Window-close guard (desktop only) ────────────────────────────────────
     # Intercept the OS close button when the scratch pad has unsaved content.
-    page.window.prevent_close = True
+    if not page.web:
+        page.window.prevent_close = True
 
     def _on_window_event(e):
         if e.data == "focus":
@@ -2442,7 +2448,8 @@ def main(page: ft.Page) -> None:
             and md_content["value"].strip()
         )
         if not scratch_dirty:
-            page.window.destroy()
+            if not page.web:
+                page.window.destroy()
             return
 
         def _save_and_close(e2):
@@ -2454,7 +2461,8 @@ def main(page: ft.Page) -> None:
 
         def _discard_and_close(e2):
             page.close(close_dlg)
-            page.window.destroy()
+            if not page.web:
+                page.window.destroy()
 
         close_dlg = ft.AlertDialog(
             bgcolor=_SURFACE,
@@ -2487,7 +2495,8 @@ def main(page: ft.Page) -> None:
         page.open(close_dlg)
         page.update()
 
-    page.window.on_event = _on_window_event
+    if not page.web:
+        page.window.on_event = _on_window_event
 
     # Initial route
     if not is_github_connected(config):
