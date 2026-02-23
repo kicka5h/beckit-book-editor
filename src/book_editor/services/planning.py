@@ -13,15 +13,27 @@ def planning_dir(repo_path: str) -> Path:
     Performs a case-insensitive search so that repos with a capitalised
     'Planning/' directory (created on macOS, which is case-insensitive)
     are found correctly on Linux (case-sensitive) inside Docker.
+
+    When multiple case-variants exist (e.g. both 'Planning/' and a
+    spurious lowercase 'planning/' that Beckit auto-created), the
+    non-lowercase variant is preferred because the app always creates
+    'planning' (lowercase) — any other casing is user-created.
     """
     base = Path(repo_path)
+    candidates = []
     try:
         for d in base.iterdir():
             if d.is_dir() and d.name.lower() == "planning":
-                return d
+                candidates.append(d)
     except (PermissionError, OSError):
         pass
-    return base / "planning"  # does not exist yet — will be created
+    if not candidates:
+        return base / "planning"  # does not exist yet — will be created
+    # Prefer a non-lowercase variant (user-created); app only creates 'planning'
+    for d in candidates:
+        if d.name != "planning":
+            return d
+    return candidates[0]
 
 
 def ensure_planning_structure(repo_path: str) -> Path:
