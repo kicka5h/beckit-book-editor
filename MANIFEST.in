@@ -1,0 +1,4 @@
+# Exclude Docker and dev tooling from source distributions
+prune docker
+exclude docker-compose.yml
+exclude .dockerignore
