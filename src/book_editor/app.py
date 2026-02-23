@@ -138,7 +138,7 @@ def _build_theme() -> ft.Theme:
         color_scheme_seed=_ACCENT,
         color_scheme=ft.ColorScheme(
             primary=_ACCENT, on_primary=_TEXT,
-            background=_BG, surface=_SURFACE,
+            surface=_SURFACE,
             on_surface=_TEXT, secondary=_ACCENT,
         ),
         visual_density=ft.VisualDensity.COMPACT,
