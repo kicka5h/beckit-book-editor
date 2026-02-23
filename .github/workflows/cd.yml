@@ -287,6 +287,49 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
 
   # ─────────────────────────────────────────────
+  # Publish builds to itch.io via butler
+  # Requires BUTLER_CREDENTIALS secret (itch.io API key)
+  # ─────────────────────────────────────────────
+  itch-publish:
+    name: Publish to itch.io
+    needs: [version, release]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Install butler
+        run: |
+          curl -fsSL \
+            "https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default" \
+            -o butler.zip
+          unzip -q butler.zip
+          chmod +x butler
+          ./butler --version
+
+      - name: Push Windows build to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_CREDENTIALS }}
+        run: |
+          ./butler push \
+            "artifacts/Beckit-Windows/Beckit-Windows-${{ needs.version.outputs.version }}-installer.exe" \
+            kicka5h/beckit-book-editor:windows \
+            --userversion "${{ needs.version.outputs.version }}"
+
+      - name: Push macOS build to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_CREDENTIALS }}
+        run: |
+          ./butler push \
+            "artifacts/Beckit-macOS/Beckit-macOS-${{ needs.version.outputs.version }}.pkg" \
+            kicka5h/beckit-book-editor:mac \
+            --userversion "${{ needs.version.outputs.version }}"
+
+  # ─────────────────────────────────────────────
   # Build and publish Docker image to GHCR
   # Image is tagged with the release version and
   # :latest so developers can always pull the
