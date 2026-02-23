@@ -1,10 +1,19 @@
+<div align="center">
+  
 # Beckit
 
-> A lightweight desktop app for writing books — with GitHub sync, chapter versioning, and one-click PDF export.
+</div>
 
-[![Latest Release](../../releases/latest/badge.svg)](../../releases/latest)
+<div align="center">
+  
+> A lightweight desktop app for writing books — with GitHub sync, chapter versioning, and PDF export. Always free, always open source. Developed with the help of Claude.
+
+[![Download](https://img.shields.io/github/release/tterb/PlayMusic.svg?style=flat)](https://github.com/kicka5h/beckit-book-editor/releases/latest)
 [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Open Source](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://opensource.org/)
+
+</div>
 
 ---
 
