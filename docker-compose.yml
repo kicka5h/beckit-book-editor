@@ -1,0 +1,23 @@
+services:
+  # ── Run the app in your browser at http://localhost:8080 ───────────────────
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount source so edits are reflected without rebuilding the image
+      - .:/app
+      # Persist the Beckit config (~/.config/beckit) across container restarts
+      - beckit-config:/root/.config/beckit
+    environment:
+      - BECKIT_WEB=1
+
+  # ── Run the test suite ────────────────────────────────────────────────────
+  test:
+    build: .
+    command: pytest tests/ -v
+    volumes:
+      - .:/app
+
+volumes:
+  beckit-config:
