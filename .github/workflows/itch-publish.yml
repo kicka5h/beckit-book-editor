@@ -1,0 +1,55 @@
+name: Publish to itch.io
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  itch-publish:
+    name: Push to itch.io
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release assets from GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.exe" \
+            --pattern "*.pkg" \
+            --dir release-assets/
+          echo "Assets downloaded:"
+          ls -lh release-assets/
+
+      - name: Install butler
+        run: |
+          curl -fsSL \
+            "https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default" \
+            -o butler.zip
+          unzip -q butler.zip
+          chmod +x butler
+          ./butler --version
+
+      # Strip the leading "v" from the tag (e.g. v3.2.1 → 3.2.1)
+      - name: Resolve version string
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Push Windows build to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_CREDENTIALS }}
+        run: |
+          ./butler push \
+            "release-assets/Beckit-Windows-${{ steps.ver.outputs.version }}-installer.exe" \
+            kicka5h/beckit-book-editor:windows \
+            --userversion "${{ steps.ver.outputs.version }}"
+
+      - name: Push macOS build to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_CREDENTIALS }}
+        run: |
+          ./butler push \
+            "release-assets/Beckit-macOS-${{ steps.ver.outputs.version }}.pkg" \
+            kicka5h/beckit-book-editor:mac \
+            --userversion "${{ steps.ver.outputs.version }}"
