@@ -1,0 +1,86 @@
+name: GitHub Sync Issue
+description: Problem with pushing, pulling, or connecting to a GitHub repository
+labels: ["bug", "github-sync"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sync issues can be tricky to diagnose. The more detail you provide here, the faster we can help.
+
+  - type: dropdown
+    id: sync_type
+    attributes:
+      label: What type of sync problem are you experiencing?
+      options:
+        - Can't connect / authenticate with GitHub
+        - Push fails or hangs
+        - Pull fails or hangs
+        - Conflicts not handled correctly
+        - Changes not showing up after sync
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem in as much detail as you can.
+      placeholder: When I click Push, the button spins for a few seconds then shows "Sync failed" with no further information.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open project linked to repo kickash/my-book
+        2. Edit a chapter
+        3. Click Push
+        4. Error appears after ~5 seconds
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Both
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Beckit version
+      placeholder: "3.3.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repo_type
+    attributes:
+      label: Repository visibility
+      options:
+        - Public
+        - Private
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message or logs
+      description: Paste any error text shown in the app or terminal. Formatted as code automatically.
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots or any other context that might help.

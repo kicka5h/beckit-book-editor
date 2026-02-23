@@ -1,0 +1,53 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Got an idea for Beckit? We'd love to hear it.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the workflow or frustration that prompted this idea.
+      placeholder: I often lose my place when switching between chapters because there's no way to bookmark a position.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the feature
+      description: What would you like Beckit to do?
+      placeholder: A bookmark or "resume here" marker that persists between sessions per chapter.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Any workarounds you're using today, or other approaches that could work.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area of the app does this relate to?
+      options:
+        - Editor
+        - GitHub Sync
+        - Planning pane
+        - PDF Export
+        - UI / Navigation
+        - Performance
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Mockups, examples from other apps, or additional context.

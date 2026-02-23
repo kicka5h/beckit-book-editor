@@ -1,0 +1,55 @@
+name: Question / Support
+description: Need help using Beckit or not sure if something is a bug?
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Happy to help! Please describe what you're trying to do and what's getting in the way.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with?
+      description: Describe what you're trying to do and what's confusing or not working.
+      placeholder: I'm not sure how to move chapters around — is there a way to reorder them without editing files manually?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area of the app?
+      options:
+        - Editor
+        - GitHub Sync
+        - Planning pane
+        - PDF Export
+        - Installation / Setup
+        - UI / Navigation
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Both
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Beckit version
+      placeholder: "3.3.1"
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots or extra context that might help us answer faster.
