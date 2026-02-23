@@ -2362,6 +2362,7 @@ def main(page: ft.Page) -> None:
 
             _slog("Startup pull: done — refreshing sidebar")
             refresh_chapter_list()
+            refresh_planning_list()
             save_indicator.value = ""
             page.update()
         finally:
