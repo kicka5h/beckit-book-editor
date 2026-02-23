@@ -8,8 +8,20 @@ from typing import List, Tuple
 
 
 def planning_dir(repo_path: str) -> Path:
-    """Return the planning directory for a repo (created on demand)."""
-    return Path(repo_path) / "planning"
+    """Return the planning directory for a repo (created on demand).
+
+    Performs a case-insensitive search so that repos with a capitalised
+    'Planning/' directory (created on macOS, which is case-insensitive)
+    are found correctly on Linux (case-sensitive) inside Docker.
+    """
+    base = Path(repo_path)
+    try:
+        for d in base.iterdir():
+            if d.is_dir() and d.name.lower() == "planning":
+                return d
+    except (PermissionError, OSError):
+        pass
+    return base / "planning"  # does not exist yet — will be created
 
 
 def ensure_planning_structure(repo_path: str) -> Path:
