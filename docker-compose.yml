@@ -1,7 +1,9 @@
 services:
   # ── Run the app in your browser at http://localhost:8080 ───────────────────
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     ports:
       - "8080:8080"
     volumes:
@@ -14,7 +16,9 @@ services:
 
   # ── Run the test suite ────────────────────────────────────────────────────
   test:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     command: pytest tests/ -v
     volumes:
       - .:/app
