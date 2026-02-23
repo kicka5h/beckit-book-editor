@@ -110,3 +110,20 @@ jobs:
             Write-Error "Expected dist\Beckit\Beckit.exe was not found"
             exit 1
           }
+
+  # ── Docker image build + test ───────────────────────────────────────────────
+  # Build the dev container and run the full test suite inside it to verify
+  # the Dockerfile and docker-compose setup remain functional on every PR.
+  docker-test:
+    name: Docker build & test
+    needs: test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker compose build
+
+      - name: Run tests inside container
+        run: docker compose run --rm test

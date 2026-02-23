@@ -1,0 +1,7 @@
+# Strip dev/build tooling from git archive exports (e.g. PyPI sdist mirrors)
+docker/            export-ignore
+docker-compose.yml export-ignore
+.dockerignore      export-ignore
+.github/           export-ignore
+run.sh             export-ignore
+MANIFEST.in        export-ignore
