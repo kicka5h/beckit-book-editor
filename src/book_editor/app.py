@@ -1252,6 +1252,8 @@ def main(page: ft.Page) -> None:
         generate_btn = _primary_btn("Save")
         save_open_btn = _primary_btn("Save & Open")
 
+        is_web = bool(os.environ.get("BECKIT_WEB"))
+
         chosen_path: dict = {"value": None}
         save_path_label = ft.Text(
             "Default (project folder)", color=_TEXT_MUTED, size=12,
@@ -1262,6 +1264,9 @@ def main(page: ft.Page) -> None:
             title = title_field.value or "Book"
             safe = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "_") or "Book"
             return f"{safe}_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+
+        web_filename_field = _styled_field("Output filename", width=300)
+        web_filename_field.value = _default_filename()
 
         def choose_location(e2):
             """Open a native OS save-file dialog in a background thread."""
@@ -1335,21 +1340,34 @@ def main(page: ft.Page) -> None:
                             "pdflatex not found. Install a TeX distribution "
                             "(brew install --cask mactex-no-gui) or reinstall Beckit."
                         )
+                    if is_web:
+                        fname = web_filename_field.value.strip() or _default_filename()
+                        if not fname.endswith(".pdf"):
+                            fname += ".pdf"
+                        out_path = Path("/tmp/beckit_web_downloads") / fname
+                    else:
+                        out_path = chosen_path["value"]
                     out = build_pdf(
                         path,
-                        output_path=chosen_path["value"],
+                        output_path=out_path,
                         title=title_field.value or "Book",
                         author=author_field.value or "",
                     )
-                    if open_after:
+                    if is_web:
+                        page.launch_url(f"/{fname}")
+                        snack_msg = f"Downloading {fname} — use your browser's Save As to choose where it goes."
+                    elif open_after:
                         if sys.platform == "darwin":
                             subprocess.run(["open", str(out)])
                         elif sys.platform == "win32":
                             os.startfile(str(out))
                         else:
                             subprocess.run(["xdg-open", str(out)])
+                        snack_msg = f"PDF saved: {out}"
+                    else:
+                        snack_msg = f"PDF saved: {out}"
                     page.close(dlg)
-                    page.open(ft.SnackBar(ft.Text(f"PDF saved: {out}"), duration=6000))
+                    page.open(ft.SnackBar(ft.Text(snack_msg), duration=6000))
                 except Exception as ex:
                     status_text.value = str(ex)
                     status_text.color = _ERROR
@@ -1376,7 +1394,7 @@ def main(page: ft.Page) -> None:
                         ft.Container(height=8),
                         author_field,
                         ft.Container(height=16),
-                        ft.Row(
+                        web_filename_field if is_web else ft.Row(
                             [
                                 ft.Icon(ft.Icons.FOLDER_OPEN, color=_TEXT_MUTED, size=16),
                                 save_path_label,
@@ -1394,7 +1412,7 @@ def main(page: ft.Page) -> None:
             ),
             actions=[
                 _ghost_btn("Cancel", on_click=on_cancel),
-                save_open_btn,
+                *([] if is_web else [save_open_btn]),
                 generate_btn,
             ],
             shape=ft.RoundedRectangleBorder(radius=10),
