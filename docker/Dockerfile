@@ -1,9 +1,14 @@
 FROM python:3.11-slim
 
-# System dependencies: git (for GitPython) and pandoc (for PDF export)
+# System dependencies: git (for GitPython), pandoc + TeX (for PDF export)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     pandoc \
+    texlive-latex-base \
+    texlive-latex-recommended \
+    texlive-fonts-recommended \
+    texlive-latex-extra \
+    lmodern \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
