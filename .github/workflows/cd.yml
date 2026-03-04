@@ -21,7 +21,7 @@ jobs:
     outputs:
       version: ${{ steps.get_version.outputs.version }}
       tag: ${{ steps.get_version.outputs.tag }}
-      should_release: ${{ steps.check_tag.outputs.should_release }}
+      should_release: ${{ steps.gate.outputs.should_release }}
 
     steps:
       - name: Checkout repository
@@ -39,6 +39,43 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION"    >> "$GITHUB_OUTPUT"
 
+      - name: Check milestone is complete
+        id: check_milestone
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          # Derive milestone prefix from version: 3.4.1 → v3.4
+          MILESTONE_VER="v$(echo "$VERSION" | cut -d. -f1,2)"
+
+          MILESTONE=$(gh api repos/$REPO/milestones --paginate \
+            --jq ".[] | select(.title | startswith(\"$MILESTONE_VER \"))" 2>/dev/null)
+
+          if [[ -z "$MILESTONE" ]]; then
+            echo "No milestone found matching '$MILESTONE_VER' — skipping milestone gate."
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          OPEN=$(echo "$MILESTONE" | jq -r '.open_issues')
+          MILESTONE_TITLE=$(echo "$MILESTONE" | jq -r '.title')
+          MILESTONE_NUM=$(echo "$MILESTONE" | jq -r '.number')
+
+          echo "Milestone : $MILESTONE_TITLE"
+          echo "Open issues: $OPEN"
+
+          if [[ "$OPEN" -gt 0 ]]; then
+            echo ""
+            echo "❌ '$MILESTONE_TITLE' still has $OPEN open issue(s) — release blocked:"
+            gh api "repos/$REPO/issues?milestone=$MILESTONE_NUM&state=open" \
+              --jq '.[] | "  #\(.number) \(.title)"'
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ Milestone '$MILESTONE_TITLE' is complete."
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check if tag already has a release
         id: check_tag
         env:
@@ -46,10 +83,26 @@ jobs:
         run: |
           TAG="v${{ steps.get_version.outputs.version }}"
           if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "Release $TAG already exists — skipping CD run."
-            echo "If you want a new release, bump the version in pyproject.toml."
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Gate release
+        id: gate
+        run: |
+          MILESTONE_COMPLETE="${{ steps.check_milestone.outputs.complete }}"
+          TAG_EXISTS="${{ steps.check_tag.outputs.tag_exists }}"
+          TAG="v${{ steps.get_version.outputs.version }}"
+
+          if [[ "$MILESTONE_COMPLETE" != "true" ]]; then
+            echo "🚫 Release blocked: milestone not complete. Close all open issues first."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG_EXISTS" == "true" ]]; then
+            echo "Release $TAG already exists — skipping. Bump the version in pyproject.toml for a new release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           else
+            echo "✅ All checks passed — proceeding with release."
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 

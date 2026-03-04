@@ -1,0 +1,107 @@
+name: Branch Name Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-branch-name:
+    name: Validate branch name
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Validate format and GitHub references
+        env:
+          BRANCH: ${{ github.head_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Required format: v{X.Y}/{label}-{issue}
+          # Examples: v3.4/bug-47   v3.5/feature-54   v4.0/export-63
+
+          if [[ ! "$BRANCH" =~ ^(v[0-9]+\.[0-9]+)/([a-z][a-z-]*)-([0-9]+)$ ]]; then
+            echo ""
+            echo "❌ Branch name '$BRANCH' does not match the required format."
+            echo ""
+            echo "   Required: v{X.Y}/{label}-{issue}"
+            echo "   Examples: v3.4/bug-47   v3.5/feature-54   v4.0/export-63"
+            echo ""
+            echo "   {X.Y}    — milestone version (must match an existing milestone)"
+            echo "   {label}  — issue label (must exist in this repo)"
+            echo "   {issue}  — open issue number (must be open and have that label and milestone)"
+            exit 1
+          fi
+
+          MILESTONE_VER="${BASH_REMATCH[1]}"
+          LABEL="${BASH_REMATCH[2]}"
+          ISSUE_NUM="${BASH_REMATCH[3]}"
+
+          echo "Parsed branch:"
+          echo "  Milestone : $MILESTONE_VER"
+          echo "  Label     : $LABEL"
+          echo "  Issue     : #$ISSUE_NUM"
+          echo ""
+
+          # ── 1. Milestone exists ───────────────────────────────────────────
+          MILESTONE_NUM=$(gh api repos/$REPO/milestones --paginate \
+            --jq ".[] | select(.title | startswith(\"$MILESTONE_VER \")) | .number" 2>/dev/null | head -1)
+
+          if [[ -z "$MILESTONE_NUM" ]]; then
+            echo "❌ No milestone found matching '$MILESTONE_VER'."
+            echo "   Available milestones:"
+            gh api repos/$REPO/milestones --jq '.[].title' | sed 's/^/     /'
+            exit 1
+          fi
+          echo "✅ Milestone '$MILESTONE_VER' exists."
+
+          # ── 2. Label exists ───────────────────────────────────────────────
+          # Normalise: hyphens in branch name → spaces when looking up label
+          LABEL_LOOKUP="${LABEL//-/ }"
+          LABEL_MATCH=$(gh api repos/$REPO/labels --paginate \
+            --jq ".[] | select(.name == \"$LABEL_LOOKUP\") | .name" 2>/dev/null)
+
+          if [[ -z "$LABEL_MATCH" ]]; then
+            echo "❌ Label '$LABEL_LOOKUP' does not exist in this repo."
+            echo "   Available labels:"
+            gh api repos/$REPO/labels --jq '.[].name' | sed 's/^/     /'
+            exit 1
+          fi
+          echo "✅ Label '$LABEL_LOOKUP' exists."
+
+          # ── 3. Issue exists and is open ───────────────────────────────────
+          ISSUE=$(gh api repos/$REPO/issues/$ISSUE_NUM 2>/dev/null)
+
+          if [[ -z "$ISSUE" ]]; then
+            echo "❌ Issue #$ISSUE_NUM does not exist."
+            exit 1
+          fi
+
+          ISSUE_STATE=$(echo "$ISSUE" | jq -r '.state')
+          if [[ "$ISSUE_STATE" != "open" ]]; then
+            echo "❌ Issue #$ISSUE_NUM is not open (state: $ISSUE_STATE)."
+            exit 1
+          fi
+          echo "✅ Issue #$ISSUE_NUM is open."
+
+          # ── 4. Issue has the label ────────────────────────────────────────
+          ISSUE_LABELS=$(echo "$ISSUE" | jq -r '[.labels[].name] | join("\n")')
+          if ! echo "$ISSUE_LABELS" | grep -qx "$LABEL_LOOKUP"; then
+            echo "❌ Issue #$ISSUE_NUM does not have label '$LABEL_LOOKUP'."
+            echo "   Labels on this issue:"
+            echo "$ISSUE_LABELS" | sed 's/^/     /'
+            exit 1
+          fi
+          echo "✅ Issue #$ISSUE_NUM has label '$LABEL_LOOKUP'."
+
+          # ── 5. Issue is in the milestone ──────────────────────────────────
+          ISSUE_MILESTONE=$(echo "$ISSUE" | jq -r '.milestone.title // ""')
+          if [[ ! "$ISSUE_MILESTONE" == "$MILESTONE_VER"* ]]; then
+            echo "❌ Issue #$ISSUE_NUM is not in milestone '$MILESTONE_VER'."
+            echo "   Current milestone: '${ISSUE_MILESTONE:-none}'"
+            exit 1
+          fi
+          echo "✅ Issue #$ISSUE_NUM is in milestone '$MILESTONE_VER'."
+
+          echo ""
+          echo "✅ Branch name '$BRANCH' is valid."
