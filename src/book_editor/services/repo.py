@@ -136,10 +136,9 @@ def git_push(
     repo = Repo(repo_path)
     if repo.is_dirty(untracked_files=True):
         repo.git.add("Chapters/")
-        # Also stage planning notes if present
-        planning = Path(repo_path) / "planning"
-        if planning.exists():
-            repo.git.add("planning/")
+        for extra in ("FrontMatter", "BackMatter", "planning"):
+            if (Path(repo_path) / extra).exists():
+                repo.git.add(f"{extra}/")
         repo.index.commit(message)
     origin = repo.remotes.origin
     old_url = origin.url

@@ -1,0 +1,160 @@
+# Book Facts & Formatting Tips
+# One fact per line. Blank lines and lines starting with # are ignored.
+
+# ── Word Counts by Genre ─────────────────────────────────────────────────────
+Genre fiction (thrillers, romance, horror) typically runs 80,000–100,000 words.
+Literary fiction averages 80,000–110,000 words, with more room for longer works.
+Young adult (YA) fiction targets 55,000–80,000 words.
+Middle grade fiction falls between 20,000 and 55,000 words.
+Epic fantasy novels often exceed 120,000 words — Tolkien's The Fellowship of the Ring is ~177,000.
+Commercial fantasy typically targets 100,000–120,000 words for debut authors.
+Science fiction averages 90,000–120,000 words.
+Historical fiction tends to run longer, averaging 100,000–150,000 words.
+Romance novels average 50,000–100,000 words depending on subgenre.
+Category romance (Harlequin-style) is tightly constrained to 55,000–60,000 words.
+Cozy mysteries typically run 65,000–90,000 words.
+Hard-boiled crime fiction averages 70,000–90,000 words.
+Psychological thrillers tend to fall between 80,000 and 100,000 words.
+Women's fiction averages 85,000–100,000 words.
+Chick-lit targets 80,000–95,000 words.
+Horror novels average 80,000–100,000 words.
+Paranormal romance typically runs 85,000–100,000 words.
+New adult fiction targets 60,000–85,000 words.
+Children's chapter books run 10,000–30,000 words.
+Picture book texts are usually under 1,000 words — often closer to 500.
+Novellas are typically 17,500–40,000 words.
+Novelettes run 7,500–17,500 words.
+Short stories are generally under 7,500 words.
+Flash fiction is under 1,000 words.
+Narrative nonfiction averages 70,000–90,000 words.
+Self-help books typically run 45,000–80,000 words.
+Business books average 50,000–80,000 words.
+Memoir averages 70,000–90,000 words.
+Biography averages 80,000–120,000 words.
+Prescriptive nonfiction (how-to) often runs 50,000–70,000 words.
+Academic monographs typically run 80,000–120,000 words.
+
+# ── Words Per Page ───────────────────────────────────────────────────────────
+A mass market paperback averages 250–300 words per page.
+A trade paperback averages 250–275 words per page.
+A hardcover averages 250–300 words per page, depending on trim size and font.
+Standard manuscript format (12pt Times New Roman, double-spaced) yields ~250 words per page.
+Publishers estimate roughly 300 words per printed page for production planning.
+A 300-page mass market paperback contains approximately 80,000–90,000 words.
+A typical 400-page novel contains approximately 100,000–120,000 words in print.
+Larger trim sizes (6×9 trade) can fit 300–350 words per page.
+Smaller trim sizes (4.19×6.75 mass market) fit roughly 250–280 words per page.
+Ebooks have no fixed "page" — word count is the only reliable length metric.
+An audiobook runs approximately 9,300 words per hour at average narration speed.
+A 100,000-word audiobook takes roughly 10–11 hours to produce and listen to.
+
+# ── Front Matter ─────────────────────────────────────────────────────────────
+Front matter is everything that appears before Chapter 1, numbered in Roman numerals.
+The half title page (bastard title) contains only the book's main title — no subtitle or author name.
+The full title page carries the complete title, subtitle, author name, and publisher imprint.
+The copyright page is usually the verso (back) of the full title page.
+The copyright page includes the copyright year, owner, edition, ISBN, Library of Congress data, and legal disclaimers.
+A dedication is a brief tribute, usually to a person or persons meaningful to the author.
+A dedication typically runs 1–3 lines and needs no heading — placement implies its purpose.
+An epigraph is a quotation placed at the opening of a book or chapter to set tone or theme.
+An epigraph is attributed below the quote, often in italics, preceded by an em dash.
+A foreword is written by someone other than the author — usually a notable person who vouches for the work.
+A preface is written by the author, explaining how and why the book came to be.
+An introduction presents the book's argument or subject — it is part of the text, not front matter preamble.
+A prologue is part of the narrative itself, set before Chapter 1, often introducing backstory or a flash-forward.
+A table of contents is standard in nonfiction; in fiction it is optional but common in multi-part works.
+An acknowledgments section can appear in either front matter or back matter — back matter is more common today.
+
+# ── Back Matter ──────────────────────────────────────────────────────────────
+Back matter follows the last chapter and is numbered with Arabic numerals continuing from the text.
+An epilogue is part of the narrative, set after the main story concludes — it is not back matter.
+An afterword is the author's reflection written after the story, discussing themes or context.
+An author's note clarifies what is fact vs. fiction, especially important in historical or biographical novels.
+An acknowledgments section is where authors thank editors, agents, beta readers, friends, and family.
+A bibliography lists sources consulted; standard in nonfiction, rare in fiction.
+A glossary defines specialized terms used in the text — common in fantasy, sci-fi, and technical nonfiction.
+An index is essential in nonfiction for discoverability; created professionally by an indexer.
+Discussion questions (a reading group guide) can appear at the back and help with book club adoption.
+An appendix contains supplementary material referenced in the text but too detailed for the main body.
+"About the Author" is a short third-person bio, typically 100–200 words, placed in back matter.
+A colophon is a production note at the back describing the typefaces and design choices used in the book.
+
+# ── Chapter & Scene Structure ────────────────────────────────────────────────
+Most traditionally published novels have 10–30 chapters.
+Thriller chapters are often kept short — 1,500–3,000 words — to increase pace and create cliffhangers.
+Literary fiction chapters tend to be longer, sometimes 5,000–10,000 words.
+A scene is a unit of action occurring in a continuous time and place with a clear goal and outcome.
+A chapter typically contains 1–5 scenes, depending on pacing and genre conventions.
+Scene breaks within a chapter are marked by a blank line or a centered symbol (# or * * *).
+A part is a larger structural division grouping multiple chapters under a theme or act.
+An act structure (three-act, five-act) is a way to think about large narrative arcs, not a formatting element.
+Chapter titles are optional in fiction; they are more common in nonfiction and middle grade/YA.
+Numbered chapters ("Chapter 1") can be spelled out ("Chapter One") — pick one style and stick to it.
+
+# ── Manuscript Formatting Standards ─────────────────────────────────────────
+Standard manuscript format uses 12pt Times New Roman or Courier, double-spaced, 1-inch margins.
+Manuscripts are formatted with a header on each page: author name / short title / page number.
+The first page of a manuscript begins with contact information in the top-left corner.
+Chapters begin on a new page, with the chapter heading centered roughly 1/3 down the page.
+Paragraph indents in manuscripts are 0.5 inches; there is no extra space between paragraphs.
+Scene breaks in manuscripts use a centered "#" on its own line.
+"The End" is traditionally typed centered after the final line of a manuscript.
+Word count in a submission query is rounded to the nearest 1,000 (e.g., "complete at 87,000 words").
+Agents and editors use manuscript word count, not publisher's print word count — they differ slightly.
+Italics in manuscripts are formatted as actual italics (not underlined, as was done on typewriters).
+
+# ── Typography & Design ──────────────────────────────────────────────────────
+Most print books use 10–12pt serif fonts (Garamond, Caslon, Minion Pro, Sabon) for body text.
+Nonfiction often uses sans-serif fonts (Myriad, Helvetica Neue) for headings with serif body text.
+Leading (line spacing) in printed books is typically 120–145% of the font size.
+An em dash (—) is used for parenthetical statements; it has no spaces on either side in US style.
+An en dash (–) is used for ranges (pages 10–20, 1939–1945) and compound modifiers.
+Ellipses in published books are typically three dots with thin spaces between (. . .) or a special character (…).
+A widow is a single word or short line stranded at the top of a page — avoided in final typesetting.
+An orphan is the first line of a paragraph stranded at the bottom of a page — also avoided.
+Running heads (headers at the top of each page) typically alternate: book title on verso, chapter title on recto.
+Page numbers (folios) can be omitted on chapter-opening pages and other display pages.
+The recto is the right-hand (odd-numbered) page; the verso is the left-hand (even-numbered) page.
+Chapters always begin on recto pages in traditionally typeset books.
+ISBN stands for International Standard Book Number; print and ebook editions each require their own ISBN.
+The spine of a book is readable when the book is shelved with the spine facing outward — author name, title, publisher.
+
+# ── Publishing Industry Numbers ──────────────────────────────────────────────
+The average traditionally published novel takes 1–3 years from acceptance to bookstore shelves.
+A debut author's advance is typically $5,000–$15,000 for genre fiction; much higher for high-profile acquisitions.
+Royalties on print books are typically 10–15% of the cover price (or net receipts).
+Ebook royalties for traditionally published authors are typically 25% of net receipts.
+Self-published authors earn 35–70% royalty on ebooks depending on platform and pricing.
+The "Big Five" publishers (Penguin Random House, HarperCollins, Simon & Schuster, Hachette, Macmillan) produce the majority of bestsellers.
+A literary agent typically takes 15% of domestic deals and 20% of foreign/subsidiary rights.
+The New York Times bestseller list requires approximately 5,000–10,000 sales in a single week, distributed across many outlets.
+Most books sell fewer than 1,000 copies in their lifetime — strong sales are rarer than they appear.
+A book is considered a bestseller on Amazon if it reaches #1 in its category, not the overall store.
+
+# ── Reading & Writing Pace ───────────────────────────────────────────────────
+The average adult reads 200–400 words per minute silently.
+Slow readers process about 100–200 words per minute; speed readers can reach 700+ wpm.
+At 250 words per minute, a 90,000-word novel takes about 6 hours to read.
+The average writer produces 500–1,500 words of usable prose per day.
+NaNoWriMo's 50,000-word goal requires 1,667 words per day for 30 days.
+Stephen King aims for 2,000 words per day; he considers it a minimum, not a ceiling.
+A 1,000-word-per-day habit produces a complete novel draft in about 3 months.
+Most authors report that revision takes longer than the first draft — often 2–5x as long.
+"The first draft of anything is garbage." — Ernest Hemingway (attributed)
+Writing 500 words daily for a year yields 182,500 words — roughly two novels.
+
+# ── Book Anatomy Miscellany ──────────────────────────────────────────────────
+The gutter is the inner margin of a page — wider than the outer margin to account for binding.
+Bleed is artwork or color that extends to the edge of the page before trimming — important in illustrated books.
+A galley is an early, uncorrected proof sent to reviewers before the final book is printed.
+An ARC (Advance Reader Copy) is a pre-publication proof distributed to reviewers and booksellers.
+A first edition is the first print run of a book; a first printing is the first batch of that edition.
+A trade paperback is larger (typically 6×9) than a mass market paperback (4.19×6.75 or 4.25×6.87).
+A perfect binding glues pages to the spine — used in most paperbacks.
+Sewn signatures (Smyth-sewn binding) are more durable than perfect binding — common in quality hardcovers.
+Folio is another word for page number, or the large-format book (12 inches or more tall) used in Shakespeare's time.
+A broadside was a single large sheet printed on one side — the predecessor to the newspaper and the pamphlet.
+The verso of the title page (copyright page) is among the most legally and catalogically important pages in a book.
+Librarians use the CIP (Cataloging in Publication) data on the copyright page to classify books.
+The BISAC subject code on the copyright page tells retailers which shelf a book belongs on.
+A colophon originally referred to a printer's device or logo; today it can also mean production notes at the book's end.
