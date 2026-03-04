@@ -1,6 +1,7 @@
 """Flet UI for the Beckit desktop app."""
 
 import os
+import random
 import re
 import subprocess
 import sys
@@ -46,6 +47,11 @@ from book_editor.services import (
     check_pandoc_available,
     check_pdflatex_available,
     classify_change,
+    FRONT_MATTER_ORDER,
+    BACK_MATTER_ORDER,
+    list_matter_sections,
+    create_matter_section,
+    delete_matter_section,
     ensure_planning_structure,
     list_planning_files,
     create_planning_file,
@@ -65,6 +71,18 @@ _TEXT    = "#F5F0EB"
 _TEXT_MUTED = "#A09890"
 _BORDER  = "#383838"
 _ERROR   = "#E05C5C"
+
+
+def _repo_name_to_title(repo_name: str) -> str:
+    """Convert 'in-the-presence-of-power-most-foul' → 'In the Presence of Power Most Foul'."""
+    words = re.split(r"[-_]+", repo_name)
+    return " ".join(w.capitalize() for w in words if w)
+
+
+def _title_to_repo_name(title: str) -> str:
+    """Convert 'In the Presence of Power Most Foul' → 'in-the-presence-of-power-most-foul'."""
+    slug = re.sub(r"[^\w\s-]", "", title.lower())
+    return re.sub(r"[\s_]+", "-", slug).strip("-")
 
 
 def _log(label: str, ex: BaseException) -> None:
@@ -304,7 +322,8 @@ def main(page: ft.Page) -> None:
         visible=False, color=_ACCENT, stroke_width=2, width=18, height=18
     )
     repo_error = ft.Text("", color=_ERROR, size=13)
-    create_repo_name_field = _styled_field("Repository name", width=300)
+    create_repo_name_field = _styled_field("Book title", width=300)
+    create_repo_name_preview = ft.Text("", size=11, color=_TEXT_MUTED)
     create_private_check = ft.Checkbox(
         label="Private repository", value=True, active_color=_ACCENT,
         label_style=ft.TextStyle(color=_TEXT_MUTED, size=13),
@@ -373,16 +392,25 @@ def main(page: ft.Page) -> None:
 
     def open_create_repo_dialog(e):
         create_repo_name_field.value = ""
+        create_repo_name_preview.value = ""
         create_private_check.value = True
 
+        def _update_repo_preview(e2):
+            slug = _title_to_repo_name(create_repo_name_field.value or "")
+            create_repo_name_preview.value = f"Repo name: {slug}" if slug else ""
+            page.update()
+
+        create_repo_name_field.on_change = _update_repo_preview
+
         def do_create(e2):
-            name = (create_repo_name_field.value or "").strip()
-            if not name:
-                page.open(ft.SnackBar(ft.Text("Enter a repository name.")))
+            title = (create_repo_name_field.value or "").strip()
+            if not title:
+                page.open(ft.SnackBar(ft.Text("Enter a book title.")))
                 page.update()
                 return
-            if not re.match(r"^[a-zA-Z0-9_.-]+$", name):
-                page.open(ft.SnackBar(ft.Text("Use only letters, numbers, - and _.")))
+            name = _title_to_repo_name(title)
+            if not name:
+                page.open(ft.SnackBar(ft.Text("Title couldn't be converted to a valid repo name.")))
                 page.update()
                 return
             token = token_holder.get("value") or load_config().get("github_token") or ""
@@ -406,10 +434,11 @@ def main(page: ft.Page) -> None:
 
         dlg = ft.AlertDialog(
             bgcolor=_SURFACE,
-            title=_heading("Create new repository", size=18),
+            title=_heading("Create new book", size=18),
             content=ft.Container(
                 ft.Column(
-                    [create_repo_name_field, ft.Container(height=8), create_private_check],
+                    [create_repo_name_field, create_repo_name_preview,
+                     ft.Container(height=4), create_private_check],
                     tight=True,
                 ),
                 width=320,
@@ -479,6 +508,13 @@ def main(page: ft.Page) -> None:
 
     # ── Editor ────────────────────────────────────────────────────────────────
     repo_path_holder = {"value": get_repo_path(config)}
+    book_title_text = ft.Text(
+        "", size=12, weight=ft.FontWeight.W_600,
+        color=_TEXT, overflow=ft.TextOverflow.ELLIPSIS,
+    )
+
+    front_matter_list = ft.Column([], spacing=0)
+    back_matter_list  = ft.Column([], spacing=0)
 
     # Dual-mode state: "preview" shows ft.Markdown, "edit" shows ft.TextField
     editor_mode = {"value": "preview"}  # "preview" | "edit"
@@ -906,6 +942,43 @@ def main(page: ft.Page) -> None:
     status_total_words = ft.Text("", size=12, color=_TEXT_MUTED)
     save_indicator = ft.Text("", size=12, color=_TEXT_MUTED)
 
+    # ── Book facts ticker ─────────────────────────────────────────────────────
+    _facts_path = Path(__file__).parent / "data" / "book_facts.txt"
+    try:
+        _book_facts = [
+            line.strip()
+            for line in _facts_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+    except Exception:
+        _book_facts = []
+
+    if _book_facts:
+        random.shuffle(_book_facts)
+
+    _fact_idx = {"value": 0}
+    fact_text = ft.Text(
+        _book_facts[0] if _book_facts else "",
+        size=11, color=_TEXT_MUTED, italic=True,
+        overflow=ft.TextOverflow.ELLIPSIS,
+        text_align=ft.TextAlign.CENTER,
+        expand=True,
+    )
+
+    def _rotate_facts():
+        while True:
+            time.sleep(15)
+            if not _book_facts:
+                continue
+            _fact_idx["value"] = (_fact_idx["value"] + 1) % len(_book_facts)
+            fact_text.value = _book_facts[_fact_idx["value"]]
+            try:
+                page.update()
+            except Exception:
+                pass
+
+    threading.Thread(target=_rotate_facts, daemon=True).start()
+
     def _mark_dirty(dirty: bool):
         """Update dirty state and save indicator without calling page.update()."""
         editor_dirty["value"] = dirty
@@ -967,7 +1040,12 @@ def main(page: ft.Page) -> None:
         edit_layer.visible = False
         _scratch_placeholder.visible = False
         m = re.search(r"[Cc]hapter\s+(\d+)", str(md_path))
-        chap_label = f"Chapter {m.group(1)}" if m else md_path.stem
+        if m:
+            chap_label = f"Chapter {m.group(1)}"
+        else:
+            # FrontMatter/Copyright/v1.0.0/v1.0.0.md → section dir is parent.parent
+            section_dir = Path(str(md_path)).parent.parent
+            chap_label = section_dir.name
         status_chapter.value = chap_label
         chapter_panel_title.value = chap_label
         history_btn.visible = True
@@ -975,6 +1053,8 @@ def main(page: ft.Page) -> None:
         _update_word_count_internal()
         _update_total_word_count_internal()
         refresh_chapter_list()
+        refresh_front_matter_list()
+        refresh_back_matter_list()
 
     def load_chapter_file(md_path: Path):
         """Load a chapter, prompting to save/discard scratch content first if needed."""
@@ -1070,8 +1150,8 @@ def main(page: ft.Page) -> None:
 
         if bump_type is not None:
             # Create a new version directory for meaningful changes
-            chapter_dir = current_path.parent.parent   # .../Chapter 1
-            chapters_root = chapter_dir.parent          # .../Chapters
+            chapter_dir = current_path.parent.parent   # .../Chapter 1 or .../Copyright
+            chapters_root = chapter_dir.parent          # .../Chapters or .../FrontMatter
             m = re.search(r"[Cc]hapter\s+(\d+)", chapter_dir.name)
             if m:
                 try:
@@ -1081,8 +1161,19 @@ def main(page: ft.Page) -> None:
                     current_md_path["value"] = str(new_md)
                 except Exception:
                     pass  # content already written in-place — no data loss
+            else:
+                # matter section
+                try:
+                    manager = ChapterVersionManager(str(chapters_root))
+                    new_ver_dir = manager.bump_section_dir(chapter_dir, bump_type)
+                    new_md = manager.get_markdown_file(new_ver_dir)
+                    current_md_path["value"] = str(new_md)
+                except Exception:
+                    pass  # content already written — no data loss
 
         refresh_chapter_list()
+        refresh_front_matter_list()
+        refresh_back_matter_list()
         _set_dirty(False)
         save_indicator.value = "Syncing…"
         save_indicator.color = _TEXT_MUTED
@@ -1608,18 +1699,206 @@ def main(page: ft.Page) -> None:
             )
         page.update()
 
+    def _matter_section_row(kind: str, name: str, md_path: Path, ver: str) -> ft.Container:
+        is_active = (current_md_path["value"] == md_path)
+
+        def _confirm_delete(e, _kind=kind, _name=name):
+            def _do_delete(e2):
+                page.close(dlg)
+                try:
+                    delete_matter_section(repo_path_holder["value"], _kind, _name)
+                except Exception as ex:
+                    page.open(ft.SnackBar(ft.Text(str(ex))))
+                    page.update()
+                    return
+                if _kind == "front":
+                    refresh_front_matter_list()
+                else:
+                    refresh_back_matter_list()
+                page.update()
+
+            dlg = ft.AlertDialog(
+                bgcolor=_SURFACE, modal=True,
+                title=_heading(f'Delete "{_name}"?', size=18),
+                content=ft.Container(
+                    ft.Text("This will permanently remove the section folder.", color=_TEXT_MUTED, size=13),
+                    width=280,
+                ),
+                actions=[
+                    _ghost_btn("Cancel", on_click=lambda e2: page.close(dlg)),
+                    ft.TextButton(
+                        "Delete",
+                        on_click=_do_delete,
+                        style=ft.ButtonStyle(
+                            color={ft.ControlState.DEFAULT: _ERROR,
+                                   ft.ControlState.HOVERED: "#FF7070"},
+                            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                        ),
+                    ),
+                ],
+                shape=ft.RoundedRectangleBorder(radius=10),
+            )
+            page.open(dlg)
+            page.update()
+
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Container(
+                        ft.Column(
+                            [
+                                ft.Text(
+                                    name,
+                                    size=12,
+                                    color=_TEXT if is_active else _TEXT_MUTED,
+                                    weight=ft.FontWeight.W_500 if is_active else ft.FontWeight.NORMAL,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                ft.Text(
+                                    ver, size=10,
+                                    color=_ACCENT if is_active else _BORDER,
+                                ),
+                            ],
+                            spacing=1, tight=True,
+                        ),
+                        expand=True,
+                        on_click=lambda e, p=md_path: load_chapter_file(p),
+                        padding=ft.padding.symmetric(vertical=7),
+                        ink=True,
+                        bgcolor=_SURFACE2 if is_active else None,
+                        border_radius=4,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE,
+                        icon_size=12,
+                        icon_color=_BORDER,
+                        tooltip=f"Delete {name}",
+                        on_click=_confirm_delete,
+                        style=ft.ButtonStyle(
+                            padding=ft.padding.all(4),
+                            overlay_color={ft.ControlState.HOVERED: "#33E05C5C"},
+                        ),
+                    ),
+                ],
+                spacing=0,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.padding.symmetric(horizontal=4),
+        )
+
+    def refresh_front_matter_list():
+        path = repo_path_holder["value"]
+        front_matter_list.controls.clear()
+        if not path:
+            page.update()
+            return
+        for name, md_path in list_matter_sections(path, "front"):
+            ver = md_path.parent.name
+            front_matter_list.controls.append(
+                _matter_section_row("front", name, md_path, ver)
+            )
+        page.update()
+
+    def refresh_back_matter_list():
+        path = repo_path_holder["value"]
+        back_matter_list.controls.clear()
+        if not path:
+            page.update()
+            return
+        for name, md_path in list_matter_sections(path, "back"):
+            ver = md_path.parent.name
+            back_matter_list.controls.append(
+                _matter_section_row("back", name, md_path, ver)
+            )
+        page.update()
+
+    def open_add_matter_dialog(kind: str):
+        path = repo_path_holder["value"]
+        if not path:
+            return
+        order = FRONT_MATTER_ORDER if kind == "front" else BACK_MATTER_ORDER
+        existing = {name for name, _ in list_matter_sections(path, kind)}
+        available = [n for n in order if n not in existing]
+        if not available:
+            page.open(ft.SnackBar(ft.Text("All sections already added.")))
+            page.update()
+            return
+
+        dd = ft.Dropdown(
+            options=[ft.dropdown.Option(n) for n in available],
+            value=available[0],
+            bgcolor=_SURFACE2,
+            color=_TEXT,
+            border_color=_BORDER,
+            focused_border_color=_ACCENT,
+            width=240,
+        )
+
+        def do_add(e2):
+            chosen = dd.value
+            if not chosen:
+                return
+            try:
+                new_md = create_matter_section(path, kind, chosen)
+                page.close(dlg)
+                if kind == "front":
+                    refresh_front_matter_list()
+                else:
+                    refresh_back_matter_list()
+                load_chapter_file(new_md)
+            except Exception as ex:
+                page.open(ft.SnackBar(ft.Text(str(ex))))
+            page.update()
+
+        dlg = ft.AlertDialog(
+            bgcolor=_SURFACE,
+            title=_heading("Add section", size=18),
+            content=ft.Container(dd, width=260),
+            actions=[
+                _ghost_btn("Cancel", on_click=lambda e2: page.close(dlg)),
+                _primary_btn("Add", on_click=do_add),
+            ],
+            shape=ft.RoundedRectangleBorder(radius=10),
+        )
+        page.open(dlg)
+        page.update()
+
+    def _matter_section_header(label: str, kind: str) -> ft.Container:
+        return ft.Container(
+            ft.Row(
+                [
+                    ft.Text(label, size=11, color=_TEXT_MUTED, weight=ft.FontWeight.W_500),
+                    ft.Container(expand=True),
+                    ft.IconButton(
+                        icon=ft.Icons.ADD,
+                        icon_size=14,
+                        icon_color=_TEXT_MUTED,
+                        tooltip=f"Add {label} section",
+                        on_click=lambda e, k=kind: open_add_matter_dialog(k),
+                        style=ft.ButtonStyle(padding=ft.padding.all(4)),
+                    ),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.padding.only(left=12, right=4, top=6, bottom=2),
+        )
+
     sidebar = ft.Container(
         ft.Column(
             [
                 ft.Container(
-                    ft.Row(
-                        [
-                            ft.Text("Chapters", size=11, color=_TEXT_MUTED,
-                                    weight=ft.FontWeight.W_500),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    ),
-                    padding=ft.padding.only(left=12, right=8, top=14, bottom=8),
+                    book_title_text,
+                    padding=ft.padding.only(left=12, right=8, top=12, bottom=2),
+                ),
+                # Front Matter
+                _matter_section_header("Front Matter", "front"),
+                ft.Container(front_matter_list, padding=ft.padding.only(bottom=2)),
+                ft.Divider(height=1, color=_BORDER),
+                # Chapters
+                ft.Container(
+                    ft.Text("Chapters", size=11, color=_TEXT_MUTED,
+                            weight=ft.FontWeight.W_500),
+                    padding=ft.padding.only(left=12, right=8, top=6, bottom=4),
                 ),
                 ft.Container(chapter_reorder_list, expand=True),
                 ft.Container(
@@ -1632,11 +1911,16 @@ def main(page: ft.Page) -> None:
                             padding=ft.padding.symmetric(horizontal=12, vertical=6),
                         ),
                     ),
-                    padding=ft.padding.only(bottom=8),
+                    padding=ft.padding.only(bottom=4),
                 ),
+                ft.Divider(height=1, color=_BORDER),
+                # Back Matter
+                _matter_section_header("Back Matter", "back"),
+                ft.Container(back_matter_list, padding=ft.padding.only(bottom=8)),
             ],
             spacing=0,
             expand=True,
+            scroll=ft.ScrollMode.AUTO,
         ),
         width=172,
         bgcolor=_SURFACE,
@@ -1705,6 +1989,8 @@ def main(page: ft.Page) -> None:
         _update_word_count_internal()
         _update_total_word_count_internal()
         refresh_chapter_list()
+        refresh_front_matter_list()
+        refresh_back_matter_list()
 
     history_btn = ft.IconButton(
         icon=ft.Icons.HISTORY,
@@ -2279,7 +2565,9 @@ def main(page: ft.Page) -> None:
                 status_words,
                 ft.Container(width=12),
                 status_total_words,
-                ft.Container(expand=True),
+                ft.Container(width=16),
+                fact_text,
+                ft.Container(width=16),
                 save_indicator,
                 ft.Container(width=12),
                 ft.TextButton(
@@ -2380,6 +2668,8 @@ def main(page: ft.Page) -> None:
 
             _slog("Startup pull: done — refreshing sidebar")
             refresh_chapter_list()
+            refresh_front_matter_list()
+            refresh_back_matter_list()
             refresh_planning_list()
             save_indicator.value = ""
             page.update()
@@ -2402,8 +2692,18 @@ def main(page: ft.Page) -> None:
             )
             on_repo_view_visible()
         elif page.route == "/editor":
+            repo_name = cfg.get("repo_name", "")
+            if repo_name:
+                _title = _repo_name_to_title(repo_name)
+                book_title_text.value = _title
+                page.title = f"Beckit — {_title}"
+            else:
+                book_title_text.value = ""
+                page.title = "Beckit"
             if repo_path_holder["value"]:
                 refresh_chapter_list()
+                refresh_front_matter_list()
+                refresh_back_matter_list()
             # Start with a blank scratch pad if no chapter is loaded
             if current_md_path["value"] is None:
                 md_content["value"] = ""

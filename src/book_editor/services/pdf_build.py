@@ -4,9 +4,11 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 
 # ── Bundled binary resolution ──────────────────────────────────────────────────
@@ -126,6 +128,37 @@ def get_latest_chapter_files(chapters_dir: Path) -> List[Path]:
 # ── PDF generation ─────────────────────────────────────────────────────────────
 
 
+@contextmanager
+def _prepared_files(files: List[Path]) -> Iterator[List[str]]:
+    """Yield a list of file path strings for pandoc, wrapping centered sections in temp files."""
+    from book_editor.services.matter import CENTERED_MATTER_SECTIONS
+    tmp_files: List[tempfile.NamedTemporaryFile] = []
+    paths: List[str] = []
+    try:
+        for f in files:
+            section_name = f.parent.parent.name  # .../SectionName/vX.Y.Z/vX.Y.Z.md
+            if section_name in CENTERED_MATTER_SECTIONS:
+                content = f.read_text(encoding="utf-8")
+                wrapped = f"\\begin{{center}}\n{content}\n\\end{{center}}\n"
+                tmp = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".md", delete=False, encoding="utf-8"
+                )
+                tmp.write(wrapped)
+                tmp.flush()
+                tmp.close()
+                tmp_files.append(tmp)
+                paths.append(tmp.name)
+            else:
+                paths.append(str(f))
+        yield paths
+    finally:
+        for tmp in tmp_files:
+            try:
+                Path(tmp.name).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 def build_pdf(
     repo_path: str,
     output_path: Optional[Path] = None,
@@ -138,10 +171,13 @@ def build_pdf(
     to system PATH in dev mode.
     Returns the path to the generated PDF.
     """
-    chapters_dir = Path(repo_path) / "Chapters"
-    files = get_latest_chapter_files(chapters_dir)
+    from book_editor.services.matter import get_all_matter_files
+    front_files = get_all_matter_files(repo_path, "front")
+    chapter_files = get_latest_chapter_files(Path(repo_path) / "Chapters")
+    back_files = get_all_matter_files(repo_path, "back")
+    files = front_files + chapter_files + back_files
     if not files:
-        raise ValueError("No chapters found in Chapters/")
+        raise ValueError("No content found to build PDF.")
 
     if output_path is None:
         date_str = datetime.now().strftime("%Y-%m-%d")
@@ -150,28 +186,29 @@ def build_pdf(
     output_path = Path(output_path)
 
     date_str = datetime.now().strftime("%Y-%m-%d")
-    cmd = [
-        _resolve_bin("pandoc"),
-        *[str(f) for f in files],
-        "-o",
-        str(output_path),
-        "--pdf-engine=pdflatex",
-        "-V", "geometry:margin=1in",
-        "-V", "fontsize=12pt",
-        "-V", "documentclass=book",
-        "-V", "papersize=letter",
-        "--toc",
-        "--toc-depth=2",
-        "-V", f"title={title}",
-        "-V", f"author={author}",
-        "-V", f"date={date_str}",
-        "--highlight-style=tango",
-        "--number-sections",
-    ]
+    with _prepared_files(files) as file_paths:
+        cmd = [
+            _resolve_bin("pandoc"),
+            *file_paths,
+            "-o",
+            str(output_path),
+            "--pdf-engine=pdflatex",
+            "-V", "geometry:margin=1in",
+            "-V", "fontsize=12pt",
+            "-V", "documentclass=book",
+            "-V", "papersize=letter",
+            "--toc",
+            "--toc-depth=2",
+            "-V", f"title={title}",
+            "-V", f"author={author}",
+            "-V", f"date={date_str}",
+            "--highlight-style=tango",
+            "--number-sections",
+        ]
 
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, cwd=repo_path, env=_augmented_env()
-    )
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, cwd=repo_path, env=_augmented_env()
+        )
     if result.returncode != 0:
         raise RuntimeError(
             f"Pandoc failed: {result.stderr or result.stdout or 'unknown error'}"

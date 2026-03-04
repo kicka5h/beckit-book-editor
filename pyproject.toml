@@ -57,6 +57,9 @@ format-markdown = "book_editor.services.format_markdown:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+book_editor = ["data/*.txt"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

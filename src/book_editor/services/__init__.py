@@ -23,6 +23,14 @@ from book_editor.services.github_app import (
 )
 from book_editor.services.pdf_build import build_pdf, get_latest_chapter_files, check_pandoc_available, check_pdflatex_available
 from book_editor.services.auto_version import classify_change
+from book_editor.services.matter import (
+    FRONT_MATTER_ORDER,
+    BACK_MATTER_ORDER,
+    list_matter_sections,
+    create_matter_section,
+    delete_matter_section,
+    get_all_matter_files,
+)
 from book_editor.services.planning import (
     planning_dir,
     ensure_planning_structure,
@@ -63,4 +71,10 @@ __all__ = [
     "create_planning_folder",
     "delete_planning_entry",
     "classify_change",
+    "FRONT_MATTER_ORDER",
+    "BACK_MATTER_ORDER",
+    "list_matter_sections",
+    "create_matter_section",
+    "delete_matter_section",
+    "get_all_matter_files",
 ]

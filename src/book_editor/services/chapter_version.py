@@ -128,6 +128,18 @@ class ChapterVersionManager:
             return int(match.group(1))
         return 0
 
+    def bump_section_dir(self, section_dir: Path, bump_type: str) -> Path:
+        """Generic version bump for any named section dir (matter or chapter)."""
+        latest = self.get_latest_version(section_dir)
+        current = self.parse_version(latest.name)
+        md_file = self.get_markdown_file(latest)
+        new_ver = self.increment_version(current, bump_type)
+        new_ver_str = self.format_version(*new_ver)
+        new_dir = section_dir / new_ver_str
+        new_dir.mkdir(exist_ok=False)
+        shutil.copy2(md_file, new_dir / md_file.name)
+        return new_dir
+
     def list_chapters(self):
         """List all chapters with their current versions"""
         if not self.chapters_dir.exists():
