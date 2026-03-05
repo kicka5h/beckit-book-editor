@@ -73,6 +73,26 @@ _BORDER  = "#383838"
 _ERROR   = "#E05C5C"
 
 
+# ── Slash command palette ────────────────────────────────────────────────────
+# Each entry: (display name, syntax preview, open_marker, close_marker)
+# close_marker is "" for block formats that end naturally at a newline.
+_SLASH_COMMANDS = [
+    ("Bold",            "**bold**",       "**",       "**"),
+    ("Italic",          "*italic*",       "*",        "*"),
+    ("Heading 1",       "# Heading",      "# ",       ""),
+    ("Heading 2",       "## Heading",     "## ",      ""),
+    ("Heading 3",       "### Heading",    "### ",     ""),
+    ("Bullet list",     "- item",         "- ",       ""),
+    ("Numbered list",   "1. item",        "1. ",      ""),
+    ("Quote",           "> quote",        "> ",       ""),
+    ("Code block",      "``` code ```",   "```\n",    "\n```"),
+    ("Inline code",     "`code`",         "`",        "`"),
+    ("Horizontal rule", "---",            "\n---\n",  ""),
+    ("Link",            "[text](url)",    "[",        "](url)"),
+    ("Scene break",     "* * *",          "\n* * *\n",""),
+]
+
+
 def _repo_name_to_title(repo_name: str) -> str:
     """Convert 'in-the-presence-of-power-most-foul' → 'In the Presence of Power Most Foul'."""
     words = re.split(r"[-_]+", repo_name)
@@ -515,9 +535,10 @@ def main(page: ft.Page) -> None:
 
     front_matter_list = ft.Column([], spacing=0)
     back_matter_list  = ft.Column([], spacing=0)
+    _slash_state = {"active": False, "query": "", "selected_idx": 0, "filtered": [], "just_applied": False}
+    # Live formatting state: active while user is typing within an open/close marker pair
+    _format_state: dict = {"active": False, "close": "", "timer": None}
 
-    # Dual-mode state: "preview" shows ft.Markdown, "edit" shows ft.TextField
-    editor_mode = {"value": "preview"}  # "preview" | "edit"
     # Raw markdown content is the source of truth
     md_content = {"value": ""}
     # Tracks whether the scratch-pad save dialog has already been triggered
@@ -573,11 +594,18 @@ def main(page: ft.Page) -> None:
 
     # Placeholder shown in preview mode when no chapter is open and no content yet
     _scratch_placeholder = ft.Container(
-        ft.Text(
-            "Start writing — you'll be asked where to save it.",
-            size=15,
-            color=_TEXT_MUTED,
-            italic=True,
+        ft.Column(
+            [
+                ft.Text(
+                    "Start writing — you'll be asked where to save it.",
+                    size=15, color=_TEXT_MUTED, italic=True,
+                ),
+                ft.Text(
+                    "Type / for formatting options",
+                    size=12, color=_BORDER, italic=True,
+                ),
+            ],
+            spacing=6, tight=True,
         ),
         padding=ft.padding.symmetric(horizontal=48, vertical=32),
         visible=True,  # shown by default; hidden once content exists or chapter is open
@@ -585,33 +613,16 @@ def main(page: ft.Page) -> None:
 
     # Invisible click catcher layered over the preview; tap → switch to edit
     def _enter_edit_mode(e=None):
-        if editor_mode["value"] == "edit":
-            return
-        editor_mode["value"] = "edit"
         raw_editor.value = md_content["value"]
-        _scratch_placeholder.visible = False
-        preview_layer.visible = False
-        edit_layer.visible = True
-        page.update()
         raw_editor.focus()
 
     def _exit_edit_mode(e=None):
-        if editor_mode["value"] != "edit":
-            return
-        # Flush current text → source of truth
         new_text = raw_editor.value or ""
         md_content["value"] = new_text
         md_preview.value = new_text
-        editor_mode["value"] = "preview"
-        preview_layer.visible = True
-        edit_layer.visible = False
-        # Show placeholder only when no content and no chapter open
         _scratch_placeholder.visible = (
             not new_text.strip() and current_md_path["value"] is None
         )
-        # Dirty state is managed by _on_raw_editor_change (fires on every
-        # keystroke), so don't touch it here — exiting edit mode without
-        # typing must not mark the document as dirty.
         _update_word_count_internal()
         page.update()
 
@@ -893,31 +904,231 @@ def main(page: ft.Page) -> None:
 
     def _on_raw_editor_change(e):
         new_text = raw_editor.value or ""
+        # If the slash menu is open and a newline was appended, the user pressed
+        # Enter to select — apply the command before page.on_keyboard_event fires.
+        if _slash_state["active"] and new_text.endswith('\n'):
+            filtered = _slash_state["filtered"]
+            idx = _slash_state["selected_idx"]
+            if filtered and 0 <= idx < len(filtered):
+                raw_editor.value = new_text[:-1]  # strip the Enter before applying
+                _name, _preview, open_marker, close_marker = filtered[idx]
+                _apply_slash_command(open_marker, close_marker)
+                return
+        # Keyboard-Enter path: _apply_slash_command already set md_content["value"]
+        # correctly. raw_editor.value here is stale — Flutter sent the old text+"\n"
+        # before receiving Python's programmatic update. Restore from the source of truth.
+        if _slash_state["just_applied"]:
+            _slash_state["just_applied"] = False
+            authoritative = md_content["value"]
+            raw_editor.value = authoritative
+            close = _format_state["close"] if _format_state["active"] else ""
+            md_preview.value = authoritative + close
+            _update_word_count_internal()
+            raw_editor.focus()
+            page.update()
+            return
+        # Detect single-character insertion to check for newline
+        old_text = md_content["value"]
+        if len(new_text) == len(old_text) + 1:
+            diff = next(
+                (i for i in range(len(old_text)) if new_text[i] != old_text[i]),
+                len(old_text),
+            )
+            if diff < len(new_text) and new_text[diff] == '\n':
+                if _format_state["active"] and _format_state["close"]:
+                    # Close inline formatting before the newline, then start a new paragraph
+                    close = _format_state["close"]
+                    new_text = new_text[:diff] + close + '\n\n' + new_text[diff + 1:]
+                    cursor_pos = diff + len(close) + 2
+                    _end_format_mode()
+                    raw_editor.value = new_text
+                    raw_editor.selection = ft.TextSelection(
+                        base_offset=cursor_pos, extent_offset=cursor_pos,
+                    )
+                elif (
+                    (diff == 0 or new_text[diff - 1] != '\n')
+                    and (diff + 1 >= len(new_text) or new_text[diff + 1] != '\n')
+                ):
+                    # Upgrade single Enter to paragraph break (\n\n)
+                    new_text = new_text[:diff] + '\n\n' + new_text[diff + 1:]
+                    raw_editor.value = new_text
+                    raw_editor.selection = ft.TextSelection(
+                        base_offset=diff + 2, extent_offset=diff + 2,
+                    )
         md_content["value"] = new_text
+        close = _format_state["close"] if _format_state["active"] else ""
+        md_preview.value = new_text + close
+        if new_text.strip():
+            _scratch_placeholder.visible = False
         _mark_dirty(True)
         _update_word_count_internal()
+        # Keep the format-mode inactivity timer alive on every keystroke
+        if _format_state["active"]:
+            _reset_format_timer()
+        # Slash command detection: /query at end of a line
+        m = re.search(r'(?:^|[\n ])/([a-zA-Z]*)$', new_text)
+        if m:
+            # m.start(1) is the first char of the query group, one after the '/'
+            slash_pos = max(m.start(1) - 1, 0)
+            _show_slash_menu(m.group(1), new_text, slash_pos)
+        elif _slash_state["active"]:
+            _hide_slash_menu()
         page.update()
 
     def _on_raw_editor_blur(e):
+        if _slash_state["active"]:
+            return  # user clicked menu item — don't exit edit mode
         _exit_edit_mode()
 
     raw_editor = ft.TextField(
         multiline=True,
         min_lines=30,
         expand=True,
-        text_style=ft.TextStyle(color=_TEXT, font_family="monospace", size=14),
+        # Text is invisible so users see the formatted preview below, not raw markdown.
+        # Font size matches the preview body style so the cursor tracks prose accurately.
+        text_style=ft.TextStyle(color="transparent", font_family="Georgia", size=15),
         cursor_color=_ACCENT,
-        bgcolor=_BG,
+        bgcolor="transparent",
         border_color="transparent",
         focused_border_color="transparent",
         content_padding=ft.padding.symmetric(horizontal=48, vertical=32),
-        hint_text="Start writing…",
-        hint_style=ft.TextStyle(color=_TEXT_MUTED, size=15, italic=True),
+        hint_text=None,  # placeholder lives in the preview layer
         on_change=_on_raw_editor_change,
         on_blur=_on_raw_editor_blur,
     )
 
-    # Edit layer: raw TextField in scrollable container
+    # ── Slash command menu ────────────────────────────────────────────────────
+    slash_menu_rows = ft.Column([], spacing=0)
+    slash_menu = ft.Container(
+        content=slash_menu_rows,
+        bgcolor=_SURFACE2,
+        border=ft.border.all(1, _BORDER),
+        border_radius=8,
+        width=272,
+        left=48,
+        top=80,
+        visible=False,
+        shadow=ft.BoxShadow(
+            blur_radius=12, spread_radius=0,
+            color="#88000000", offset=ft.Offset(0, 4),
+        ),
+        padding=ft.padding.symmetric(vertical=4),
+    )
+
+    def _hide_slash_menu():
+        _slash_state["active"] = False
+        _slash_state["query"] = ""
+        _slash_state["selected_idx"] = 0
+        _slash_state["filtered"] = []
+        slash_menu.visible = False
+
+    # ── Live formatting mode helpers ──────────────────────────────────────────
+    def _end_format_mode():
+        """Cancel any pending timer and clear the active formatting state."""
+        _format_state["active"] = False
+        _format_state["close"] = ""
+        if _format_state["timer"] is not None:
+            _format_state["timer"].cancel()
+            _format_state["timer"] = None
+
+    def _close_format_mode_on_pause():
+        """Timer callback: append the close marker after an 8-second typing pause."""
+        close = _format_state["close"]
+        if not close:
+            return
+        text = raw_editor.value or ""
+        new_text = text + close
+        raw_editor.value = new_text
+        md_content["value"] = new_text
+        md_preview.value = new_text
+        _mark_dirty(True)
+        _end_format_mode()
+        page.update()
+
+    def _reset_format_timer():
+        """Restart the 8-second inactivity timer that closes the format mode."""
+        if _format_state["timer"] is not None:
+            _format_state["timer"].cancel()
+        t = threading.Timer(8.0, _close_format_mode_on_pause)
+        t.daemon = True
+        t.start()
+        _format_state["timer"] = t
+
+    def _apply_slash_command(open_marker: str, close_marker: str):
+        """Remove the /query trigger, insert open_marker, and enter format mode if needed."""
+        text = raw_editor.value or ""
+        query = _slash_state["query"]
+        trigger = "/" + query
+        idx = text.rfind(trigger)
+        if idx != -1:
+            new_text = text[:idx] + open_marker + text[idx + len(trigger):]
+            raw_editor.value = new_text
+            md_content["value"] = new_text
+            if close_marker:
+                _format_state["active"] = True
+                _format_state["close"] = close_marker
+                _reset_format_timer()
+            # Show the preview with close marker so the format renders immediately
+            md_preview.value = new_text + close_marker if close_marker else new_text
+            _mark_dirty(True)
+        _hide_slash_menu()
+        raw_editor.focus()
+        page.update()
+
+    def _build_slash_rows():
+        slash_menu_rows.controls.clear()
+        for i, (name, preview, open_marker, close_marker) in enumerate(_slash_state["filtered"]):
+            is_selected = (i == _slash_state["selected_idx"])
+            slash_menu_rows.controls.append(
+                ft.Container(
+                    ft.Row(
+                        [
+                            ft.Text(name, size=13, color=_TEXT, expand=True),
+                            ft.Text(
+                                preview, size=11, color=_TEXT_MUTED,
+                                font_family="monospace",
+                            ),
+                        ],
+                        spacing=8,
+                    ),
+                    padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                    ink=True,
+                    border_radius=4,
+                    bgcolor="#40DA7756" if is_selected else None,
+                    on_click=lambda e, o=open_marker, c=close_marker: _apply_slash_command(o, c),
+                )
+            )
+
+    def _show_slash_menu(query: str, text: str, slash_pos: int):
+        filtered = [
+            cmd for cmd in _SLASH_COMMANDS
+            if not query or cmd[0].lower().startswith(query.lower())
+        ]
+        if not filtered:
+            _hide_slash_menu()
+            return
+        _slash_state["active"] = True
+        _slash_state["query"] = query
+        _slash_state["filtered"] = filtered
+        _slash_state["selected_idx"] = 0
+        _build_slash_rows()
+        # Approximate cursor y: count newlines before the slash, multiply by
+        # line height (14px font × 1.57 leading ≈ 22px), offset by top padding.
+        _EDITOR_TOP_PAD = 32
+        _LINE_HEIGHT = 22
+        line_number = text[:slash_pos].count('\n')
+        slash_menu.top = _EDITOR_TOP_PAD + (line_number + 1) * _LINE_HEIGHT + 4
+        slash_menu.visible = True
+
+    # Persistent hint shown at the bottom of the edit layer
+    _slash_edit_hint = ft.Container(
+        ft.Text("Type / for formatting options", size=11, color=_BORDER, italic=True),
+        padding=ft.padding.only(left=48, bottom=16),
+    )
+
+    # Edit layer: raw TextField on top of the preview — the text is rendered
+    # transparent so users never see raw markdown, but the cursor stays visible
+    # and all keyboard input routes here naturally via normal click-to-focus.
     edit_layer = ft.Container(
         content=ft.Column(
             [raw_editor],
@@ -926,13 +1137,13 @@ def main(page: ft.Page) -> None:
             spacing=0,
         ),
         expand=True,
-        bgcolor=_BG,
-        visible=False,
+        bgcolor="transparent",
+        visible=True,
     )
 
-    # Editor area: stack preview + edit layers
+    # Editor area: formatted preview behind transparent edit layer; slash menu on top.
     editor_area = ft.Stack(
-        [preview_layer, edit_layer],
+        [preview_layer, edit_layer, slash_menu],
         expand=True,
     )
 
@@ -1035,9 +1246,6 @@ def main(page: ft.Page) -> None:
         md_content["value"] = text
         md_preview.value = text
         raw_editor.value = text
-        editor_mode["value"] = "preview"
-        preview_layer.visible = True
-        edit_layer.visible = False
         _scratch_placeholder.visible = False
         m = re.search(r"[Cc]hapter\s+(\d+)", str(md_path))
         if m:
@@ -1126,9 +1334,7 @@ def main(page: ft.Page) -> None:
                 page.update()
             return
         # If currently editing, flush the raw editor text first
-        if editor_mode["value"] == "edit":
-            md_content["value"] = raw_editor.value or ""
-
+        md_content["value"] = raw_editor.value or ""
         new_text = md_content["value"]
         current_path = Path(path)
 
@@ -1308,9 +1514,8 @@ def main(page: ft.Page) -> None:
             page.update()
             return
         # Flush any in-progress edit before formatting
-        if editor_mode["value"] == "edit":
-            md_content["value"] = raw_editor.value or ""
-            Path(path).write_text(md_content["value"], encoding="utf-8")
+        md_content["value"] = raw_editor.value or ""
+        Path(path).write_text(md_content["value"], encoding="utf-8")
         try:
             changed = process_file(Path(path), in_place=True)
             if changed:
@@ -1318,10 +1523,6 @@ def main(page: ft.Page) -> None:
                 md_content["value"] = text
                 md_preview.value = text
                 raw_editor.value = text
-                # Switch back to preview after format
-                editor_mode["value"] = "preview"
-                preview_layer.visible = True
-                edit_layer.visible = False
                 page.open(ft.SnackBar(ft.Text("Formatted.")))
             else:
                 page.open(ft.SnackBar(ft.Text("Already formatted.")))
@@ -1981,9 +2182,6 @@ def main(page: ft.Page) -> None:
         status_chapter.value = ""
         chapter_panel_title.value = "New document"
         _scratch_placeholder.visible = True
-        editor_mode["value"] = "preview"
-        preview_layer.visible = True
-        edit_layer.visible = False
         history_btn.visible = False
         _mark_dirty(False)
         _update_word_count_internal()
@@ -2711,9 +2909,6 @@ def main(page: ft.Page) -> None:
                 raw_editor.value = ""
                 _save_dialog_pending["value"] = False
                 _scratch_placeholder.visible = True
-                editor_mode["value"] = "preview"
-                preview_layer.visible = True
-                edit_layer.visible = False
                 status_chapter.value = ""
                 _mark_dirty(False)
                 _update_word_count_internal()
@@ -2816,6 +3011,32 @@ def main(page: ft.Page) -> None:
 
     if not page.web:
         page.window.on_event = _on_window_event
+
+    def _on_keyboard_event(e: ft.KeyboardEvent):
+        if not _slash_state["active"]:
+            return
+        filtered = _slash_state["filtered"]
+        idx = _slash_state["selected_idx"]
+        if e.key == "Escape":
+            _hide_slash_menu()
+            page.update()
+        elif e.key == "Arrow Down":
+            if filtered:
+                _slash_state["selected_idx"] = min(idx + 1, len(filtered) - 1)
+                _build_slash_rows()
+                page.update()
+        elif e.key == "Arrow Up":
+            if filtered:
+                _slash_state["selected_idx"] = max(idx - 1, 0)
+                _build_slash_rows()
+                page.update()
+        elif e.key == "Enter":
+            if filtered and 0 <= idx < len(filtered):
+                _slash_state["just_applied"] = True
+                _name, _preview, open_marker, close_marker = filtered[idx]
+                _apply_slash_command(open_marker, close_marker)
+
+    page.on_keyboard_event = _on_keyboard_event
 
     # Initial route
     if not is_github_connected(config):
