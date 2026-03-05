@@ -615,35 +615,22 @@ def main(page: ft.Page) -> None:
         _update_word_count_internal()
         page.update()
 
-    # Preview layer: scrollable Markdown + transparent tap target on top
+    # Preview layer: scrollable Markdown.
+    # Using ft.Container(on_click=...) instead of ft.GestureDetector so that
+    # the click handler does not compete with the scroll view for pointer events.
     preview_layer = ft.Container(
         content=ft.Column(
             [
-                ft.GestureDetector(
-                    content=ft.Container(
-                        content=ft.Column(
-                            [
-                                # Placeholder shown when editor is empty and no chapter loaded
-                                _scratch_placeholder,
-                                ft.Container(
-                                    md_preview,
-                                    padding=ft.padding.symmetric(horizontal=48, vertical=32),
-                                    expand=True,
-                                ),
-                                # Clickable empty space below text to enter edit mode
-                                ft.GestureDetector(
-                                    content=ft.Container(height=200, expand=False),
-                                    on_tap=_enter_edit_mode,
-                                ),
-                            ],
-                            expand=True,
-                            spacing=0,
-                        ),
-                        bgcolor=_BG,
-                        expand=True,
-                    ),
-                    on_tap=_enter_edit_mode,
-                )
+                # Placeholder shown when editor is empty and no chapter loaded
+                _scratch_placeholder,
+                ft.Container(
+                    md_preview,
+                    padding=ft.padding.symmetric(horizontal=48, vertical=32),
+                    expand=True,
+                    on_click=_enter_edit_mode,
+                ),
+                # Empty space below text — also clickable to enter edit mode
+                ft.Container(height=200, expand=False, on_click=_enter_edit_mode),
             ],
             scroll=ft.ScrollMode.AUTO,
             expand=True,
