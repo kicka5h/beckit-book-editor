@@ -3,6 +3,7 @@
 Format Markdown files (blank lines between paragraphs, optional indentation).
 """
 
+import os
 import sys
 import argparse
 from pathlib import Path
@@ -81,6 +82,8 @@ def find_markdown_files(directory: Path, exclude_patterns: List[str] = None) -> 
 
 def process_file(input_path: Path, output_path: Path = None, in_place: bool = False,
                 dry_run: bool = False, indent_paragraphs: bool = False, indent_string: str = "    "):
+    if '..' in str(input_path):
+        raise Exception('Invalid file path')
     with open(input_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -101,6 +104,8 @@ def process_file(input_path: Path, output_path: Path = None, in_place: bool = Fa
     if dry_run:
         print(f"Would format: {input_path} -> {output}")
     else:
+        if '..' in str(output):
+            raise Exception('Invalid file path')
         with open(output, 'w', encoding='utf-8') as f:
             f.write(formatted_content)
         print(f"Formatted: {input_path} -> {output}")

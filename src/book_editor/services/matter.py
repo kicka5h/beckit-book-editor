@@ -1,5 +1,6 @@
 """Front matter and back matter section management."""
 
+import os
 import shutil
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -80,6 +81,10 @@ def create_matter_section(repo_path: str, kind: str, name: str) -> Path:
     ver_dir = section_dir / "v1.0.0"
     ver_dir.mkdir(parents=True)
     md_file = ver_dir / "v1.0.0.md"
+    base_real = os.path.realpath(base)
+    target_real = os.path.realpath(md_file)
+    if os.path.commonpath([base_real, target_real]) != base_real:
+        raise ValueError("Invalid file path")
     md_file.write_text("", encoding="utf-8")
     return md_file
 

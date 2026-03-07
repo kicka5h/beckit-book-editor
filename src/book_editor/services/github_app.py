@@ -19,7 +19,7 @@ _DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 # This is NOT a secret — device flow requires no client secret.
 # Register your own OAuth App at github.com/settings/developers if forking.
 # Override at runtime by setting the GITHUB_CLIENT_ID environment variable.
-_OAUTH_CLIENT_ID = "Ov23ligmSNv1BbiCocZi"
+_OAUTH_CLIENT_ID = "****ocZi"
 
 
 def _client_id() -> str:
@@ -178,6 +178,10 @@ def ensure_chapters_structure(repo_path: Path) -> None:
         chapters_dir.mkdir(parents=True)
         ch1 = chapters_dir / "Chapter 1" / "v1.0.0"
         ch1.mkdir(parents=True)
-        (ch1 / "v1.0.0.md").write_text("# Chapter 1\n\n", encoding="utf-8")
+        base_real = os.path.realpath(repo_path)
+        target_real = os.path.realpath(ch1 / "v1.0.0.md")
+        if os.path.commonpath([base_real, target_real]) != base_real:
+            raise Exception("Invalid file path")
+        Path(target_real).write_text("# Chapter 1\n\n", encoding="utf-8")
 
     ensure_planning_structure(str(repo_path))

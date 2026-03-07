@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import List, Tuple
@@ -42,6 +43,10 @@ def ensure_planning_structure(repo_path: str) -> Path:
     pdir.mkdir(parents=True, exist_ok=True)
     readme = pdir / "README.md"
     if not readme.exists():
+        base_real = os.path.realpath(pdir)
+        target_real = os.path.realpath(readme)
+        if os.path.commonpath([base_real, target_real]) != base_real:
+            raise Exception("Invalid file path")
         readme.write_text(
             "# Planning\n\nUse this directory for outlines, notes, and research.\n",
             encoding="utf-8",
@@ -97,6 +102,10 @@ def create_planning_file(repo_path: str, rel_path: str) -> Path:
         target = target.with_suffix(".md")
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
+        base_real = os.path.realpath(planning_dir(repo_path))
+        target_real = os.path.realpath(target)
+        if os.path.commonpath([base_real, target_real]) != base_real:
+            raise Exception("Invalid file path")
         target.write_text(f"# {target.stem}\n\n", encoding="utf-8")
     return target
 

@@ -62,6 +62,8 @@ def extract_chapter_number(dirname: str) -> Optional[int]:
 
 def count_words_in_file(file_path: Path) -> int:
     try:
+        if '..' in str(file_path):
+            raise Exception('Invalid file path')
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         content = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
