@@ -18,12 +18,19 @@ _DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 # Client ID for the Beckit GitHub OAuth App.
 # This is NOT a secret — device flow requires no client secret.
 # Register your own OAuth App at github.com/settings/developers if forking.
-# Override at runtime by setting the GITHUB_CLIENT_ID environment variable.
-_OAUTH_CLIENT_ID = "****ocZi"
+# In CI, this value is injected from the OAUTH_CLIENT_ID Actions secret at build time.
+# Set OAUTH_CLIENT_ID in your environment to override locally.
+_OAUTH_CLIENT_ID = ""
 
 
 def _client_id() -> str:
-    return os.environ.get("GITHUB_CLIENT_ID", _OAUTH_CLIENT_ID).strip()
+    client_id = os.environ.get("OAUTH_CLIENT_ID", _OAUTH_CLIENT_ID).strip()
+    if not client_id:
+        raise RuntimeError(
+            "No GitHub OAuth client ID configured. "
+            "Set the GITHUB_CLIENT_ID environment variable or contact the app developer."
+        )
+    return client_id
 
 
 def start_device_flow() -> dict:

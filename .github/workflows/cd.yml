@@ -142,6 +142,18 @@ jobs:
           pip install -e .
           pip install flet pyinstaller
 
+      - name: Inject OAuth client ID
+        shell: python
+        env:
+          OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+        run: |
+          import os, pathlib, re
+          path = pathlib.Path("src/book_editor/services/github_app.py")
+          src = path.read_text(encoding="utf-8")
+          client_id = os.environ["OAUTH_CLIENT_ID"]
+          src = re.sub(r'^_OAUTH_CLIENT_ID\s*=\s*""', f'_OAUTH_CLIENT_ID = "{client_id}"', src, flags=re.MULTILINE)
+          path.write_text(src, encoding="utf-8")
+
       - name: Build app with flet pack (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
