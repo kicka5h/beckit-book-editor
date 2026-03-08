@@ -137,19 +137,18 @@ def _prepared_files(files: List[Path]) -> Iterator[List[str]]:
     try:
         for f in files:
             section_name = f.parent.parent.name  # .../SectionName/vX.Y.Z/vX.Y.Z.md
+            content = f.read_text(encoding="utf-8")
             if section_name in CENTERED_MATTER_SECTIONS:
-                content = f.read_text(encoding="utf-8")
-                wrapped = f"\\begin{{center}}\n{content}\n\\end{{center}}\n"
-                tmp = tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".md", delete=False, encoding="utf-8"
-                )
-                tmp.write(wrapped)
-                tmp.flush()
-                tmp.close()
-                tmp_files.append(tmp)
-                paths.append(tmp.name)
-            else:
-                paths.append(str(f))
+                content = f"\\begin{{center}}\n{content}\n\\end{{center}}\n"
+            content += "\n\n\\newpage\n"
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".md", delete=False, encoding="utf-8"
+            )
+            tmp.write(content)
+            tmp.flush()
+            tmp.close()
+            tmp_files.append(tmp)
+            paths.append(tmp.name)
         yield paths
     finally:
         for tmp in tmp_files:
