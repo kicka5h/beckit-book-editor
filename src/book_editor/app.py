@@ -1689,10 +1689,23 @@ def main(page: ft.Page) -> None:
     def _matter_section_row(kind: str, name: str, md_path: Path, ver: str) -> ft.Container:
         is_active = (current_md_path["value"] == md_path)
 
-        def _confirm_delete(e, _kind=kind, _name=name):
+        def _confirm_delete(e, _kind=kind, _name=name, _md_path=md_path):
             def _do_delete(e2):
                 page.close(dlg)
                 try:
+                    # If the section being deleted is currently open, clear the editor
+                    cur = current_md_path["value"]
+                    if cur and str(cur) == str(_md_path):
+                        current_md_path["value"] = None
+                        _save_dialog_pending["value"] = False
+                        md_content["value"] = ""
+                        md_preview.value = ""
+                        raw_editor.value = ""
+                        status_chapter.value = ""
+                        _scratch_placeholder.visible = True
+                        _mark_dirty(False)
+                        _update_word_count_internal()
+
                     delete_matter_section(repo_path_holder["value"], _kind, _name)
                 except Exception as ex:
                     page.open(ft.SnackBar(ft.Text(str(ex))))
